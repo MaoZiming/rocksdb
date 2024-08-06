@@ -3,12 +3,15 @@
 #include <myproto/db_service.pb.h>
 #include <rocksdb/db.h>
 
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
 
 using freshCache::DBDeleteRequest;
 using freshCache::DBDeleteResponse;
+using freshCache::DBGetLoadRequest;
+using freshCache::DBGetLoadResponse;
 using freshCache::DBGetRequest;
 using freshCache::DBGetResponse;
 using freshCache::DBPutRequest;
@@ -46,9 +49,15 @@ class DBServiceImpl final : public DBService::Service {
   Status Get(ServerContext* context, const DBGetRequest* request,
              DBGetResponse* response) override {
     std::cout << "Get: " << request->key() << std::endl;
+
+    auto start = std::chrono::high_resolution_clock::now();  // Start timing
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
+
+    auto end = std::chrono::high_resolution_clock::now();  // End timing
+    std::chrono::duration<float> duration = end - start;
+
     if (s.ok()) {
       response->set_value(value);
       response->set_found(true);
@@ -56,6 +65,9 @@ class DBServiceImpl final : public DBService::Service {
       response->set_value("");
       response->set_found(false);
     }
+
+    load_ += duration.count();  // Store the duration in load_
+
     return Status::OK;
   }
 
@@ -67,8 +79,17 @@ class DBServiceImpl final : public DBService::Service {
     return Status::OK;
   }
 
+  Status GetLoad(ServerContext* context, const DBGetLoadRequest* request,
+                 DBGetLoadResponse* response) override {
+    std::cout << "Get Load" << std::endl;
+    response->set_load(load_);
+    response->set_success(true);
+    return Status::OK;
+  }
+
  private:
   rocksdb::DB* db_;
+  float load_;
 };
 
 void RunServer(const std::string& address, const std::string& db_path) {
