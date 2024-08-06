@@ -38,8 +38,10 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Put(ServerContext* context, const DBPutRequest* request,
              DBPutResponse* response) override {
+#ifdef DEBUG
     std::cout << "Put: " << request->key() << ", " << request->value()
               << std::endl;
+#endif
     rocksdb::Status s =
         db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
     response->set_success(s.ok());
@@ -48,8 +50,9 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Get(ServerContext* context, const DBGetRequest* request,
              DBGetResponse* response) override {
+#ifdef DEBUG
     std::cout << "Get: " << request->key() << std::endl;
-
+#endif
     auto start = std::chrono::high_resolution_clock::now();  // Start timing
     std::string value;
     rocksdb::Status s =
@@ -73,7 +76,9 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Delete(ServerContext* context, const DBDeleteRequest* request,
                 DBDeleteResponse* response) override {
+#ifdef DEBUG
     std::cout << "Delete: " << request->key() << std::endl;
+#endif
     rocksdb::Status s = db_->Delete(rocksdb::WriteOptions(), request->key());
     response->set_success(s.ok());
     return Status::OK;
@@ -81,7 +86,9 @@ class DBServiceImpl final : public DBService::Service {
 
   Status GetLoad(ServerContext* context, const DBGetLoadRequest* request,
                  DBGetLoadResponse* response) override {
+#ifdef DEBUG
     std::cout << "Get Load" << std::endl;
+#endif
     response->set_load(load_);
     response->set_success(true);
     return Status::OK;
