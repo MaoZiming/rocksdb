@@ -35,6 +35,8 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Put(ServerContext* context, const DBPutRequest* request,
              DBPutResponse* response) override {
+    std::cout << "Put: " << request->key() << ", " << request->value()
+              << std::endl;
     rocksdb::Status s =
         db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
     response->set_success(s.ok());
@@ -43,6 +45,7 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Get(ServerContext* context, const DBGetRequest* request,
              DBGetResponse* response) override {
+    std::cout << "Get: " << request->key() << std::endl;
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
@@ -58,6 +61,7 @@ class DBServiceImpl final : public DBService::Service {
 
   Status Delete(ServerContext* context, const DBDeleteRequest* request,
                 DBDeleteResponse* response) override {
+    std::cout << "Delete: " << request->key() << std::endl;
     rocksdb::Status s = db_->Delete(rocksdb::WriteOptions(), request->key());
     response->set_success(s.ok());
     return Status::OK;
