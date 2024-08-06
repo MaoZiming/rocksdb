@@ -15,9 +15,9 @@ set(PROTO_FILES
 add_library(myproto ${PROTO_FILES})
 target_link_libraries(myproto
     PUBLIC
-        protobuf::libprotobuf
-        gRPC::grpc
-        gRPC::grpc++
+    protobuf::libprotobuf
+    gRPC::grpc
+    gRPC::grpc++
 )
 target_include_directories(myproto PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 

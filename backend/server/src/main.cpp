@@ -1,17 +1,20 @@
 #include <grpcpp/grpcpp.h>
+#include <myproto/rocksdb_service.grpc.pb.h>
+#include <myproto/rocksdb_service.pb.h>
 #include <rocksdb/db.h>
 
 #include <iostream>
 #include <memory>
 #include <string>
 
-#include <myproto/rocksdb_service.pb.h>
-#include <myproto/rocksdb_service.grpc.pb.h>
-
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
+using rocksdb::DeleteRequest;
+using rocksdb::DeleteResponse;
+using rocksdb::GetRequest;
+using rocksdb::GetResponse;
 using rocksdb::PutRequest;
 using rocksdb::PutResponse;
 using rocksdb::RocksDBService;
@@ -38,6 +41,28 @@ class RocksDBServiceImpl final : public RocksDBService::Service {
     return Status::OK;
   }
 
+  Status Get(ServerContext* context, const GetRequest* request,
+             GetResponse* response) override {
+    std::string value;
+    rocksdb::Status s =
+        db_->Get(rocksdb::ReadOptions(), request->key(), &value);
+    if (s.ok()) {
+      response->set_value(value);
+      response->set_found(true);
+    } else {
+      response->set_value("");
+      response->set_found(false);
+    }
+    return Status::OK;
+  }
+
+  Status Delete(ServerContext* context, const DeleteRequest* request,
+                DeleteResponse* response) override {
+    rocksdb::Status s = db_->Delete(rocksdb::WriteOptions(), request->key());
+    response->set_success(s.ok());
+    return Status::OK;
+  }
+
  private:
   rocksdb::DB* db_;
 };
@@ -56,6 +81,25 @@ void RunServer(const std::string& address, const std::string& db_path) {
 }
 
 int main(int argc, char** argv) {
-  RunServer("0.0.0.0:50051", "/path/to/rocksdb");
+  // Default values
+  std::string port = "50051";
+  std::string rocksdb_path = "/path/to/rocksdb";
+
+  // Check the number of arguments
+  if (argc != 3) {
+    std::cerr << "Usage: " << argv[0] << " <port> <rocksdb_path>" << std::endl;
+    return 1;  // Return with error code
+  }
+
+  // Read arguments
+  port = argv[1];
+  rocksdb_path = argv[2];
+
+  // Construct the server address
+  std::string server_address = "0.0.0.0:" + port;
+
+  // Run the server
+  RunServer(server_address, rocksdb_path);
+
   return 0;
 }

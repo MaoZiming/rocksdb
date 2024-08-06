@@ -1,8 +1,14 @@
 export MY_INSTALL_DIR=$HOME/.local
-mkdir -p $MY_INSTALL_DIR
 export PATH="$MY_INSTALL_DIR/bin:$PATH"
-sudo apt install -y build-essential autoconf libtool pkg-config
+echo 'export MY_INSTALL_DIR=$HOME/.local' >> ~/.bashrc
+echo 'export PATH="$MY_INSTALL_DIR/bin:$PATH"' >> ~/.bashrc
 
+mkdir -p $MY_INSTALL_DIR
+sudo apt update
+sudo apt install -y make g++ cmake build-essential autoconf libtool pkg-config
+
+# gRPC.
+cd ~
 git clone --recurse-submodules --depth 1 --shallow-submodules https://github.com/grpc/grpc
 cd grpc
 mkdir -p cmake/build
@@ -15,16 +21,9 @@ make -j 4
 sudo make install
 popd
 
-
-sudo apt install make -y
-sudo apt install g++ -y
-make static_lib -j9
-sudo apt install cmake
-
-# Installing gRPC and Protobuf
-sudo apt-get install build-essential autoconf libtool pkg-config
-sudo apt-get install libudev-dev libsystemd-dev
-
-
+# RocksDB
+cd ~
+git clone https://github.com/MaoZiming/rocksdb
 cd rocksdb
-make static_lib
+make static_lib -j4
+sudo make install

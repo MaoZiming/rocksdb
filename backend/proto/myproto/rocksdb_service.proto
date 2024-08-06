@@ -4,6 +4,8 @@ package rocksdb;
 
 service RocksDBService {
   rpc Put (PutRequest) returns (PutResponse);
+  rpc Get (GetRequest) returns (GetResponse);
+  rpc Delete (DeleteRequest) returns (DeleteResponse);
 }
 
 message PutRequest {
@@ -12,5 +14,22 @@ message PutRequest {
 }
 
 message PutResponse {
+  bool success = 1;
+}
+
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  string value = 1;
+  bool found = 2; // Indicates whether the key was found
+}
+
+message DeleteRequest {
+  string key = 1;
+}
+
+message DeleteResponse {
   bool success = 1;
 }
