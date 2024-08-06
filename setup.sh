@@ -1,3 +1,8 @@
+#!/bin/bash
+
+# Exit on any error
+set -e
+
 export MY_INSTALL_DIR=$HOME/.local
 export PATH="$MY_INSTALL_DIR/bin:$PATH"
 echo 'export MY_INSTALL_DIR=$HOME/.local' >> ~/.bashrc

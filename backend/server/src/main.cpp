@@ -7,17 +7,17 @@
 #include <memory>
 #include <string>
 
+using freshCache::DeleteRequest;
+using freshCache::DeleteResponse;
+using freshCache::GetRequest;
+using freshCache::GetResponse;
+using freshCache::PutRequest;
+using freshCache::PutResponse;
+using freshCache::RocksDBService;
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
-using rocksdb::DeleteRequest;
-using rocksdb::DeleteResponse;
-using rocksdb::GetRequest;
-using rocksdb::GetResponse;
-using rocksdb::PutRequest;
-using rocksdb::PutResponse;
-using rocksdb::RocksDBService;
 
 class RocksDBServiceImpl final : public RocksDBService::Service {
  public:

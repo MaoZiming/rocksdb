@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package rocksdb;
+package freshCache;
 
 service RocksDBService {
   rpc Put (PutRequest) returns (PutResponse);
