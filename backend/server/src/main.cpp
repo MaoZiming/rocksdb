@@ -1,27 +1,27 @@
 #include <grpcpp/grpcpp.h>
-#include <myproto/rocksdb_service.grpc.pb.h>
-#include <myproto/rocksdb_service.pb.h>
+#include <myproto/db_service.grpc.pb.h>
+#include <myproto/db_service.pb.h>
 #include <rocksdb/db.h>
 
 #include <iostream>
 #include <memory>
 #include <string>
 
-using freshCache::DeleteRequest;
-using freshCache::DeleteResponse;
-using freshCache::GetRequest;
-using freshCache::GetResponse;
-using freshCache::PutRequest;
-using freshCache::PutResponse;
-using freshCache::RocksDBService;
+using freshCache::DBDeleteRequest;
+using freshCache::DBDeleteResponse;
+using freshCache::DBGetRequest;
+using freshCache::DBGetResponse;
+using freshCache::DBPutRequest;
+using freshCache::DBPutResponse;
+using freshCache::DBService;
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
 
-class RocksDBServiceImpl final : public RocksDBService::Service {
+class DBServiceImpl final : public DBService::Service {
  public:
-  RocksDBServiceImpl(const std::string& db_path) {
+  DBServiceImpl(const std::string& db_path) {
     rocksdb::Options options;
     options.create_if_missing = true;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_);
@@ -31,18 +31,18 @@ class RocksDBServiceImpl final : public RocksDBService::Service {
     }
   }
 
-  ~RocksDBServiceImpl() { delete db_; }
+  ~DBServiceImpl() { delete db_; }
 
-  Status Put(ServerContext* context, const PutRequest* request,
-             PutResponse* response) override {
+  Status Put(ServerContext* context, const DBPutRequest* request,
+             DBPutResponse* response) override {
     rocksdb::Status s =
         db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
     response->set_success(s.ok());
     return Status::OK;
   }
 
-  Status Get(ServerContext* context, const GetRequest* request,
-             GetResponse* response) override {
+  Status Get(ServerContext* context, const DBGetRequest* request,
+             DBGetResponse* response) override {
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
@@ -56,8 +56,8 @@ class RocksDBServiceImpl final : public RocksDBService::Service {
     return Status::OK;
   }
 
-  Status Delete(ServerContext* context, const DeleteRequest* request,
-                DeleteResponse* response) override {
+  Status Delete(ServerContext* context, const DBDeleteRequest* request,
+                DBDeleteResponse* response) override {
     rocksdb::Status s = db_->Delete(rocksdb::WriteOptions(), request->key());
     response->set_success(s.ok());
     return Status::OK;
@@ -69,7 +69,7 @@ class RocksDBServiceImpl final : public RocksDBService::Service {
 
 void RunServer(const std::string& address, const std::string& db_path) {
   std::string server_address(address);
-  RocksDBServiceImpl service(db_path);
+  DBServiceImpl service(db_path);
 
   ServerBuilder builder;
   builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -83,7 +83,7 @@ void RunServer(const std::string& address, const std::string& db_path) {
 int main(int argc, char** argv) {
   // Default values
   std::string port = "50051";
-  std::string rocksdb_path = "/path/to/rocksdb";
+  std::string rocksdb_path = "test.db";
 
   // Check the number of arguments
   if (argc != 3) {

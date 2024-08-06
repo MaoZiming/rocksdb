@@ -6,7 +6,8 @@ find_package(Threads)
 # Protobuf/Grpc source files
 #
 set(PROTO_FILES
-    myproto/rocksdb_service.proto
+    myproto/db_service.proto
+    myproto/cache_service.proto
 )
 
 #
