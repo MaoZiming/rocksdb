@@ -5,7 +5,8 @@
 #include <memory>
 #include <string>
 
-#include "rocksdb_service.grpc.pb.h"
+#include <myproto/rocksdb_service.pb.h>
+#include <myproto/rocksdb_service.grpc.pb.h>
 
 using grpc::Server;
 using grpc::ServerBuilder;
