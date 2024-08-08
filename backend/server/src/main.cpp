@@ -84,7 +84,12 @@ class DBServiceImpl final : public DBService::Service {
       response->set_found(false);
     }
 
+#ifdef USE_STATIC_VALUE
+    load_ += C_M;
+#else
     load_ += end - start;  // Store the duration in load_
+#endif
+
 #ifdef DEBUG
     std::cout << "Load" << (int)load_ << std::endl;
 #endif
@@ -123,6 +128,88 @@ class DBServiceImpl final : public DBService::Service {
   TimeStamp load_ = 0;
   CacheClient* cache_client_ = nullptr;
 };
+
+class LatencyInterceptor : public grpc::experimental::Interceptor {
+ public:
+  void Intercept(
+      grpc::experimental::InterceptorBatchMethods* methods) override {
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::
+                PRE_SEND_INITIAL_METADATA)) {
+      start_time_ = std::chrono::high_resolution_clock::now();
+      std::cout << "Timer start " << std::endl;
+    }
+
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::PRE_SEND_MESSAGE)) {
+      std::cout << "PRE_SEND_MESSAGE hook triggered" << std::endl;
+    }
+
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::POST_SEND_MESSAGE)) {
+      std::cout << "POST_SEND_MESSAGE hook triggered" << std::endl;
+    }
+
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::PRE_RECV_MESSAGE)) {
+      std::cout << "PRE_RECV_MESSAGE hook triggered" << std::endl;
+    }
+
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::POST_RECV_MESSAGE)) {
+      std::cout << "POST_RECV_MESSAGE hook triggered" << std::endl;
+    }
+
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::POST_RECV_STATUS)) {
+      auto end_time = std::chrono::high_resolution_clock::now();
+      auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
+                         end_time - start_time_)
+                         .count();
+      std::cout << "Full Server-Side Latency: " << latency << " microseconds"
+                << std::endl;
+    }
+
+    methods->Proceed();
+  }
+
+ private:
+  std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+};
+
+class LatencyInterceptorFactory
+    : public grpc::experimental::ServerInterceptorFactoryInterface {
+ public:
+  grpc::experimental::Interceptor* CreateServerInterceptor(
+      grpc::experimental::ServerRpcInfo* info) override {
+    return new LatencyInterceptor;
+  }
+};
+
+void RunServerWithInterceptors(const std::string& address,
+                               const std::string& db_path,
+                               CacheClient* cache_client) {
+  std::string server_address(address);
+  DBServiceImpl service(db_path, cache_client);
+
+  ServerBuilder builder;
+  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+  builder.RegisterService(&service);
+
+  std::vector<
+      std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>>
+      interceptors;
+  interceptors.push_back(
+      std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>(
+          new LatencyInterceptorFactory()));
+
+  builder.experimental().SetInterceptorCreators(std::move(interceptors));
+
+  std::unique_ptr<Server> server(builder.BuildAndStart());
+  std::cout << "Server listening on " << server_address << std::endl;
+
+  server->Wait();
+}
 
 void RunServer(const std::string& address, const std::string& db_path,
                CacheClient* cache_client) {

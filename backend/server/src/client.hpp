@@ -48,4 +48,12 @@ class CacheClient {
   std::unique_ptr<CacheService::Stub> stub_;
 };
 
+// #define USE_STATIC_VALUE
+
+#ifdef USE_STATIC_VALUE
+const int C_I = 10;
+const int C_U = 46;
+const int C_M = C_I + C_U;
+#endif
+
 #endif  // CLIENT_HPP

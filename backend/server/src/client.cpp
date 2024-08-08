@@ -91,13 +91,19 @@ float CacheClient::GetMR(void) {
 }
 
 bool CacheClient::Invalidate(const std::string &key, TimeStamp *load) {
+  // TODO: Use async and return a future.
   CacheInvalidateRequest request;
   CacheInvalidateResponse response;
   ClientContext context;
 
   TimeStamp start = GetTimestamp();
   request.set_key(key);
-  (*load) = GetTimestamp() - start;
+
+#ifdef USE_STATIC_VALUE
+  (*load) += C_I;
+#else
+  (*load) += GetTimestamp() - start;
+#endif
   Status status = stub_->Invalidate(&context, request, &response);
 
   if (status.ok()) {
@@ -111,6 +117,7 @@ bool CacheClient::Invalidate(const std::string &key, TimeStamp *load) {
 
 bool CacheClient::Update(const std::string &key, const std::string &value,
                          TimeStamp *load) {
+  // TODO: Use async and return a future.
   CacheUpdateRequest request;
   CacheUpdateResponse response;
   ClientContext context;
@@ -118,7 +125,12 @@ bool CacheClient::Update(const std::string &key, const std::string &value,
   TimeStamp start = GetTimestamp();
   request.set_key(key);
   request.set_value(value);
-  (*load) = GetTimestamp() - start;
+
+#ifdef USE_STATIC_VALUE
+  (*load) += C_U;
+#else
+  (*load) += GetTimestamp() - start;
+#endif
   Status status = stub_->Update(&context, request, &response);
 
   if (status.ok()) {
