@@ -16,7 +16,8 @@ find_library(ROCKSDB_LIBRARY rocksdb HINTS ${ROCKSDB_LIB_DIR})
 # Sources
 #
 set(SOURCES
-    src/main.cpp
+    src/client.cpp
+    src/client.hpp
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
@@ -24,7 +25,11 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 #
 # Target
 #
-add_executable(server ${SOURCES})
+add_executable(server
+    ${SOURCES}
+    src/main.cpp
+)
+
 target_link_libraries(server
     PRIVATE
     myproto

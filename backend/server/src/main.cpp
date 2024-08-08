@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+#include "client.hpp"
+
 using freshCache::DBDeleteRequest;
 using freshCache::DBDeleteResponse;
 using freshCache::DBGetLoadRequest;
@@ -24,7 +26,7 @@ using grpc::Status;
 
 class DBServiceImpl final : public DBService::Service {
  public:
-  DBServiceImpl(const std::string& db_path) {
+  DBServiceImpl(const std::string& db_path, CacheClient* cache_client) {
     rocksdb::Options options;
     options.create_if_missing = true;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_);
@@ -32,6 +34,7 @@ class DBServiceImpl final : public DBService::Service {
       std::cerr << "Failed to open RocksDB: " << status.ToString() << std::endl;
       exit(1);
     }
+    cache_client_ = cache_client;
   }
 
   ~DBServiceImpl() { delete db_; }
@@ -45,6 +48,19 @@ class DBServiceImpl final : public DBService::Service {
     rocksdb::Status s =
         db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
     response->set_success(s.ok());
+
+    float ew = request->ew();
+#ifdef DEBUG
+    std::cout << "ew: " << ew << std::endl;
+#endif
+
+    if (ew > 1) {
+      invalidate(request->key());
+    } else if (ew > 0 && ew <= 1) {
+      update(request->key(), request->value());
+    } else if (ew == -1) {
+      invalidate(request->key());
+    }
     return Status::OK;
   }
 
@@ -53,13 +69,12 @@ class DBServiceImpl final : public DBService::Service {
 #ifdef DEBUG
     std::cout << "Get: " << request->key() << std::endl;
 #endif
-    auto start = std::chrono::high_resolution_clock::now();  // Start timing
+    TimeStamp start = GetTimestamp();  // Start timing
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
 
-    auto end = std::chrono::high_resolution_clock::now();  // End timing
-    std::chrono::duration<float> duration = end - start;
+    TimeStamp end = GetTimestamp();  // End timing
 
     if (s.ok()) {
       response->set_value(value);
@@ -69,8 +84,10 @@ class DBServiceImpl final : public DBService::Service {
       response->set_found(false);
     }
 
-    load_ += duration.count();  // Store the duration in load_
-
+    load_ += end - start;  // Store the duration in load_
+#ifdef DEBUG
+    std::cout << "Load" << (int)load_ << std::endl;
+#endif
     return Status::OK;
   }
 
@@ -94,14 +111,23 @@ class DBServiceImpl final : public DBService::Service {
     return Status::OK;
   }
 
+  void invalidate(const std::string key) {
+    cache_client_->Invalidate(key, &load_);
+  }
+  void update(const std::string key, std::string value) {
+    cache_client_->Update(key, value, &load_);
+  }
+
  private:
   rocksdb::DB* db_;
-  float load_;
+  TimeStamp load_ = 0;
+  CacheClient* cache_client_ = nullptr;
 };
 
-void RunServer(const std::string& address, const std::string& db_path) {
+void RunServer(const std::string& address, const std::string& db_path,
+               CacheClient* cache_client) {
   std::string server_address(address);
-  DBServiceImpl service(db_path);
+  DBServiceImpl service(db_path, cache_client);
 
   ServerBuilder builder;
   builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -116,6 +142,8 @@ int main(int argc, char** argv) {
   // Default values
   std::string port = "50051";
   std::string rocksdb_path = "test.db";
+  CacheClient cache_client(grpc::CreateChannel(
+      "10.128.0.34:50051", grpc::InsecureChannelCredentials()));
 
   // Check the number of arguments
   if (argc != 3) {
@@ -131,7 +159,7 @@ int main(int argc, char** argv) {
   std::string server_address = "0.0.0.0:" + port;
 
   // Run the server
-  RunServer(server_address, rocksdb_path);
+  RunServer(server_address, rocksdb_path, &cache_client);
 
   return 0;
 }
