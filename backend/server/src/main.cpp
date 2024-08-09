@@ -54,12 +54,32 @@ class DBServiceImpl final : public DBService::Service {
     std::cout << "ew: " << ew << std::endl;
 #endif
 
-    if (ew > 1) {
+    if (ew == TTL_EW) {
+      // disabled
+      return Status::OK;
+    } else if (ew == INVALIDATE_EW) {
       invalidate(request->key());
-    } else if (ew > 0 && ew <= 1) {
+    } else if (ew == UPDATE_EW) {
       update(request->key(), request->value());
-    } else if (ew == -1) {
-      invalidate(request->key());
+    } else {
+      assert(ew > 0 || ew == -1);
+      if (ew == -1) {
+        invalidate(request->key());
+      } else {
+#ifdef USE_STATIC_VALUE
+        if (ew * C_U > C_I + C_M) {
+          invalidate(request->key());
+        } else {
+          update(request->key(), request->value());
+        }
+#else
+        if (ew > 0 && ew <= 1) {
+          update(request->key(), request->value());
+        } else if (ew == -1) {
+          invalidate(request->key());
+        }
+#endif
+      }
     }
     return Status::OK;
   }
@@ -113,6 +133,8 @@ class DBServiceImpl final : public DBService::Service {
 #endif
     response->set_load(load_);
     response->set_success(true);
+    // Reset Load.
+    load_ = 0;
     return Status::OK;
   }
 
