@@ -3,10 +3,14 @@
 #include <myproto/db_service.pb.h>
 #include <rocksdb/db.h>
 
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
 
 #include "client.hpp"
 
@@ -24,6 +28,8 @@ using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
 
+const int STALENESS_BOUND = 1;
+
 class DBServiceImpl final : public DBService::Service {
  public:
   DBServiceImpl(const std::string& db_path, CacheClient* cache_client) {
@@ -38,6 +44,33 @@ class DBServiceImpl final : public DBService::Service {
   }
 
   ~DBServiceImpl() { delete db_; }
+
+  void invalidate_or_update(std::string key, std::string value, float ew) {
+    if (ew == INVALIDATE_EW) {
+      invalidate(key);
+    } else if (ew == UPDATE_EW) {
+      update(key, value);
+    } else {
+      assert(ew > 0 || ew == -1);
+      if (ew == -1) {
+        invalidate(key);
+      } else {
+#ifdef USE_STATIC_VALUE
+        if (ew * C_U > C_I + C_M) {
+          invalidate(key);
+        } else {
+          update(key, value);
+        }
+#else
+        if (ew > 0 && ew <= 1) {
+          update(key, value);
+        } else if (ew == -1) {
+          invalidate(key);
+        }
+#endif
+      }
+    }
+  }
 
   Status Put(ServerContext* context, const DBPutRequest* request,
              DBPutResponse* response) override {
@@ -54,33 +87,16 @@ class DBServiceImpl final : public DBService::Service {
     std::cout << "ew: " << ew << std::endl;
 #endif
 
+    write_buffer(request->key(), request->value(), ew);
+
     if (ew == TTL_EW) {
       // disabled
       return Status::OK;
-    } else if (ew == INVALIDATE_EW) {
-      invalidate(request->key());
-    } else if (ew == UPDATE_EW) {
-      update(request->key(), request->value());
     } else {
-      assert(ew > 0 || ew == -1);
-      if (ew == -1) {
-        invalidate(request->key());
-      } else {
-#ifdef USE_STATIC_VALUE
-        if (ew * C_U > C_I + C_M) {
-          invalidate(request->key());
-        } else {
-          update(request->key(), request->value());
-        }
-#else
-        if (ew > 0 && ew <= 1) {
-          update(request->key(), request->value());
-        } else if (ew == -1) {
-          invalidate(request->key());
-        }
-#endif
-      }
+      if (STALENESS_BOUND == 0)
+        invalidate_or_update(request->key(), request->value(), ew);
     }
+
     return Status::OK;
   }
 
@@ -145,11 +161,42 @@ class DBServiceImpl final : public DBService::Service {
     cache_client_->Update(key, value, &load_);
   }
 
+  void write_buffer(const std::string key, std::string value, float ew) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bufferedWrites_[key] = std::make_pair(value, ew);
+  }
+
+  void CheckBuffer() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& pair : bufferedWrites_) {
+      const std::string& key = pair.first;
+      const std::string& value = pair.second.first;
+      float ew = pair.second.second;
+
+      invalidate_or_update(key, value, ew);
+
+      std::cout << "Key: " << key << ", Value: " << value << ", ew: " << ew
+                << std::endl;
+    }
+    bufferedWrites_.clear();
+  }
+
  private:
   rocksdb::DB* db_;
   TimeStamp load_ = 0;
   CacheClient* cache_client_ = nullptr;
+  std::unordered_map<std::string, std::pair<std::string, float>>
+      bufferedWrites_;
+  std::mutex mutex_;
 };
+
+void RunPeriodicTask(DBServiceImpl* service, std::atomic<bool>& running) {
+  if (STALENESS_BOUND == 0) return;
+  while (running) {
+    std::this_thread::sleep_for(std::chrono::seconds(STALENESS_BOUND));
+    service->CheckBuffer();
+  }
+}
 
 class LatencyInterceptor : public grpc::experimental::Interceptor {
  public:
@@ -230,7 +277,17 @@ void RunServerWithInterceptors(const std::string& address,
   std::unique_ptr<Server> server(builder.BuildAndStart());
   std::cout << "Server listening on " << server_address << std::endl;
 
+  // Atomic flag to control the running state of the background thread
+  std::atomic<bool> running(true);
+
+  // Start the background thread for periodic task
+  std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
+
   server->Wait();
+
+  // Signal the background thread to stop and join it
+  running = false;
+  periodic_thread.join();
 }
 
 void RunServer(const std::string& address, const std::string& db_path,
@@ -244,7 +301,17 @@ void RunServer(const std::string& address, const std::string& db_path,
   std::unique_ptr<Server> server(builder.BuildAndStart());
   std::cout << "Server listening on " << server_address << std::endl;
 
+  // Atomic flag to control the running state of the background thread
+  std::atomic<bool> running(true);
+
+  // Start the background thread for periodic task
+  std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
+
   server->Wait();
+
+  // Signal the background thread to stop and join it
+  running = false;
+  periodic_thread.join();
 }
 
 int main(int argc, char** argv) {
