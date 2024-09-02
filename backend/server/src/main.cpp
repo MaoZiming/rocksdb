@@ -80,6 +80,8 @@ class DBServiceImpl final : public DBService::Service {
 #endif
     rocksdb::Status s =
         db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
+
+    // std::cout << "Key: " << request->key() << std::endl;
     response->set_success(s.ok());
 
     float ew = request->ew();
@@ -87,14 +89,14 @@ class DBServiceImpl final : public DBService::Service {
     std::cout << "ew: " << ew << std::endl;
 #endif
 
-    write_buffer(request->key(), request->value(), ew);
-
     if (ew == TTL_EW) {
       // disabled
       return Status::OK;
     } else {
       if (STALENESS_BOUND == 0)
         invalidate_or_update(request->key(), request->value(), ew);
+      else
+        write_buffer(request->key(), request->value(), ew);
     }
 
     return Status::OK;
@@ -116,6 +118,7 @@ class DBServiceImpl final : public DBService::Service {
       response->set_value(value);
       response->set_found(true);
     } else {
+      // std::cout << "key not found! " << request->key() << std::endl;
       response->set_value("");
       response->set_found(false);
     }
@@ -175,8 +178,8 @@ class DBServiceImpl final : public DBService::Service {
 
       invalidate_or_update(key, value, ew);
 
-      std::cout << "Key: " << key << ", Value: " << value << ", ew: " << ew
-                << std::endl;
+      // std::cout << "Key: " << key << ", Value: " << value << ", ew: " << ew
+      // << std::endl;
     }
     bufferedWrites_.clear();
   }
