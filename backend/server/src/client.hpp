@@ -10,7 +10,6 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 using grpc::Channel;
 using grpc::ClientContext;
@@ -47,7 +46,6 @@ class CacheClient {
 
  private:
   std::unique_ptr<CacheService::Stub> stub_;
-  std::unordered_map<std::string, std::string> bufferedWrites_;
 };
 
 #define USE_STATIC_VALUE

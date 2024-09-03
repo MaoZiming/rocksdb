@@ -304,15 +304,10 @@ void RunServer(const std::string& address, const std::string& db_path,
   std::unique_ptr<Server> server(builder.BuildAndStart());
   std::cout << "Server listening on " << server_address << std::endl;
 
-  // Atomic flag to control the running state of the background thread
   std::atomic<bool> running(true);
-
-  // Start the background thread for periodic task
   std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
 
   server->Wait();
-
-  // Signal the background thread to stop and join it
   running = false;
   periodic_thread.join();
 }
