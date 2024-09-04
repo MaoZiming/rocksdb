@@ -35,6 +35,7 @@ class DBServiceImpl final : public DBService::Service {
   DBServiceImpl(const std::string& db_path, CacheClient* cache_client) {
     rocksdb::Options options;
     options.create_if_missing = true;
+    options.disable_auto_compactions = true;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_);
     if (!status.ok()) {
       std::cerr << "Failed to open RocksDB: " << status.ToString() << std::endl;
@@ -78,8 +79,11 @@ class DBServiceImpl final : public DBService::Service {
     std::cout << "Put: " << request->key() << ", " << request->value()
               << std::endl;
 #endif
+
+    rocksdb::WriteOptions write_options;
+    // write_options.disableWAL = true;
     rocksdb::Status s =
-        db_->Put(rocksdb::WriteOptions(), request->key(), request->value());
+        db_->Put(write_options, request->key(), request->value());
 
     // std::cout << "Key: " << request->key() << std::endl;
     response->set_success(s.ok());
@@ -111,6 +115,18 @@ class DBServiceImpl final : public DBService::Service {
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
+
+    /* Busy loop for 1s */
+    // Start busy loop for 1 second
+    /*
+    auto st = std::chrono::high_resolution_clock::now();
+    auto ed = st + std::chrono::seconds(1);
+
+    while (std::chrono::high_resolution_clock::now() < ed) {
+      // Busy loop, continuously checking the time
+      ;
+    }
+    */
 
     TimeStamp end = GetTimestamp();  // End timing
 
