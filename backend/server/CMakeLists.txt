@@ -18,6 +18,7 @@ find_library(ROCKSDB_LIBRARY rocksdb HINTS ${ROCKSDB_LIB_DIR})
 set(SOURCES
     src/client.cpp
     src/client.hpp
+    src/load_tracker.hpp
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

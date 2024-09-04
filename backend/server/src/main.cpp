@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include "client.hpp"
+#include "load_tracker.hpp"
 
 using freshCache::DBDeleteRequest;
 using freshCache::DBDeleteResponse;
@@ -84,10 +85,7 @@ class DBServiceImpl final : public DBService::Service {
     // write_options.disableWAL = true;
     rocksdb::Status s =
         db_->Put(write_options, request->key(), request->value());
-
-    // std::cout << "Key: " << request->key() << std::endl;
     response->set_success(s.ok());
-
     float ew = request->ew();
 #ifdef DEBUG
     std::cout << "ew: " << ew << std::endl;
@@ -115,19 +113,6 @@ class DBServiceImpl final : public DBService::Service {
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
-
-    /* Busy loop for 1s */
-    // Start busy loop for 1 second
-    /*
-    auto st = std::chrono::high_resolution_clock::now();
-    auto ed = st + std::chrono::seconds(1);
-
-    while (std::chrono::high_resolution_clock::now() < ed) {
-      // Busy loop, continuously checking the time
-      ;
-    }
-    */
-
     TimeStamp end = GetTimestamp();  // End timing
 
     if (s.ok()) {
@@ -191,11 +176,7 @@ class DBServiceImpl final : public DBService::Service {
       const std::string& key = pair.first;
       const std::string& value = pair.second.first;
       float ew = pair.second.second;
-
       invalidate_or_update(key, value, ew);
-
-      // std::cout << "Key: " << key << ", Value: " << value << ", ew: " << ew
-      // << std::endl;
     }
     bufferedWrites_.clear();
   }
@@ -217,98 +198,6 @@ void RunPeriodicTask(DBServiceImpl* service, std::atomic<bool>& running) {
   }
 }
 
-class LatencyInterceptor : public grpc::experimental::Interceptor {
- public:
-  void Intercept(
-      grpc::experimental::InterceptorBatchMethods* methods) override {
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::
-                PRE_SEND_INITIAL_METADATA)) {
-      start_time_ = std::chrono::high_resolution_clock::now();
-      std::cout << "Timer start " << std::endl;
-    }
-
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::PRE_SEND_MESSAGE)) {
-      std::cout << "PRE_SEND_MESSAGE hook triggered" << std::endl;
-    }
-
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::POST_SEND_MESSAGE)) {
-      std::cout << "POST_SEND_MESSAGE hook triggered" << std::endl;
-    }
-
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::PRE_RECV_MESSAGE)) {
-      std::cout << "PRE_RECV_MESSAGE hook triggered" << std::endl;
-    }
-
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::POST_RECV_MESSAGE)) {
-      std::cout << "POST_RECV_MESSAGE hook triggered" << std::endl;
-    }
-
-    if (methods->QueryInterceptionHookPoint(
-            grpc::experimental::InterceptionHookPoints::POST_RECV_STATUS)) {
-      auto end_time = std::chrono::high_resolution_clock::now();
-      auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
-                         end_time - start_time_)
-                         .count();
-      std::cout << "Full Server-Side Latency: " << latency << " microseconds"
-                << std::endl;
-    }
-
-    methods->Proceed();
-  }
-
- private:
-  std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
-};
-
-class LatencyInterceptorFactory
-    : public grpc::experimental::ServerInterceptorFactoryInterface {
- public:
-  grpc::experimental::Interceptor* CreateServerInterceptor(
-      grpc::experimental::ServerRpcInfo* info) override {
-    return new LatencyInterceptor;
-  }
-};
-
-void RunServerWithInterceptors(const std::string& address,
-                               const std::string& db_path,
-                               CacheClient* cache_client) {
-  std::string server_address(address);
-  DBServiceImpl service(db_path, cache_client);
-
-  ServerBuilder builder;
-  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-  builder.RegisterService(&service);
-
-  std::vector<
-      std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>>
-      interceptors;
-  interceptors.push_back(
-      std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>(
-          new LatencyInterceptorFactory()));
-
-  builder.experimental().SetInterceptorCreators(std::move(interceptors));
-
-  std::unique_ptr<Server> server(builder.BuildAndStart());
-  std::cout << "Server listening on " << server_address << std::endl;
-
-  // Atomic flag to control the running state of the background thread
-  std::atomic<bool> running(true);
-
-  // Start the background thread for periodic task
-  std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
-
-  server->Wait();
-
-  // Signal the background thread to stop and join it
-  running = false;
-  periodic_thread.join();
-}
-
 void RunServer(const std::string& address, const std::string& db_path,
                CacheClient* cache_client) {
   std::string server_address(address);
@@ -323,9 +212,15 @@ void RunServer(const std::string& address, const std::string& db_path,
   std::atomic<bool> running(true);
   std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
 
+  std::string timestamp = GetT();
+
+  std::string logFilename =
+      "cpu_" + timestamp + ".log";  // Construct the filename
+  START_COLLECTION(logFilename);
   server->Wait();
   running = false;
   periodic_thread.join();
+  END_COLLECTION();
 }
 
 int main(int argc, char** argv) {
