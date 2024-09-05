@@ -49,7 +49,7 @@ class CacheClient {
 };
 
 #define USE_STATIC_VALUE
-
+// #define USE_COMPUTATION
 #ifdef USE_STATIC_VALUE
 const int C_I = 10;
 const int C_U = 46;

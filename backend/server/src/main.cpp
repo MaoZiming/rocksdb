@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "client.hpp"
 #include "load_tracker.hpp"
@@ -30,6 +31,20 @@ using grpc::ServerContext;
 using grpc::Status;
 
 const int STALENESS_BOUND = 1;
+
+void computeMatrixMultiplication(int size) {
+  std::vector<std::vector<int>> matrix1(size, std::vector<int>(size, 1));
+  std::vector<std::vector<int>> matrix2(size, std::vector<int>(size, 2));
+  std::vector<std::vector<int>> result(size, std::vector<int>(size, 0));
+
+  for (int i = 0; i < size; ++i) {
+    for (int j = 0; j < size; ++j) {
+      for (int k = 0; k < size; ++k) {
+        result[i][j] += matrix1[i][k] * matrix2[k][j];
+      }
+    }
+  }
+}
 
 class DBServiceImpl final : public DBService::Service {
  public:
@@ -113,6 +128,16 @@ class DBServiceImpl final : public DBService::Service {
     std::string value;
     rocksdb::Status s =
         db_->Get(rocksdb::ReadOptions(), request->key(), &value);
+
+#ifdef USE_COMPUTATION
+    // Scale matrix size based on value length
+    int matrix_size = std::max(
+        10, static_cast<int>(value.size() /
+                             100));  // Minimum size 10, scales with value
+
+    computeMatrixMultiplication(matrix_size);
+#endif
+
     TimeStamp end = GetTimestamp();  // End timing
 
     if (s.ok()) {
@@ -162,6 +187,15 @@ class DBServiceImpl final : public DBService::Service {
     cache_client_->Invalidate(key, &load_);
   }
   void update(const std::string key, std::string value) {
+    // Scale matrix size based on value length
+    int matrix_size = std::max(
+        10, static_cast<int>(value.size() /
+                             100));  // Minimum size 10, scales with value
+
+#ifdef USE_COMPUTATION
+    computeMatrixMultiplication(matrix_size);
+#endif
+
     cache_client_->Update(key, value, &load_);
   }
 
