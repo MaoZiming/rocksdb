@@ -36,6 +36,24 @@ output_file = "plot/Poisson-Invalidate-uniform.pdf"
 log_file = "build/cpu_2024-09-05 07:53:45.log"
 output_file = "plot/Poisson-TTL-uniform.pdf"
 
+log_file = "build/cpu_2024-09-05 17:41:30.log"
+output_file = "plot/PoissonMix-TTL.pdf"
+
+log_file = "build/cpu_2024-09-05 17:45:10.log"
+output_file = "plot/PoissonMix-Invalidate.pdf"
+
+log_file = "build/cpu_2024-09-05 17:49:43.log"
+output_file = "plot/PoissonMix-Update.pdf"
+
+log_file = "build/cpu_2024-09-06 06:16:30.log"
+output_file = "plot/Meta-TTL.pdf"
+
+log_file = "build/cpu_2024-09-06 06:23:21.log"
+output_file = "plot/Meta-Invalidate.pdf"
+
+log_file = "build/cpu_2024-09-06 06:30:26.log"
+output_file = "plot/Meta-Update.pdf"
+
 import matplotlib.dates as mdates
 from datetime import timedelta
 
@@ -120,7 +138,7 @@ ax1.tick_params(axis='y')
 ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))  # Ensure that x-axis ticks are at whole minutes
 ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x)} s"))  # Format x-axis as minutes
 
-ax1.set_xlim([0, 200])
+ax1.set_xlim([0, 350])
 
 # Format x-axis to prevent crowding
 # ax1.xaxis.set_major_locator(mdates.AutoDateLocator())  # Automatically manage x-axis ticks

@@ -158,6 +158,8 @@ class DBServiceImpl final : public DBService::Service {
 #ifdef DEBUG
     std::cout << "Load" << (int)load_ << std::endl;
 #endif
+
+    is_key_invalidated[request->key()] = false;
     return Status::OK;
   }
 
@@ -185,14 +187,15 @@ class DBServiceImpl final : public DBService::Service {
 
   void invalidate(const std::string key) {
     cache_client_->Invalidate(key, &load_);
+    is_key_invalidated[key] = true;
   }
   void update(const std::string key, std::string value) {
+#ifdef USE_COMPUTATION
     // Scale matrix size based on value length
     int matrix_size = std::max(
         10, static_cast<int>(value.size() /
                              100));  // Minimum size 10, scales with value
 
-#ifdef USE_COMPUTATION
     computeMatrixMultiplication(matrix_size);
 #endif
 
@@ -221,6 +224,7 @@ class DBServiceImpl final : public DBService::Service {
   CacheClient* cache_client_ = nullptr;
   std::unordered_map<std::string, std::pair<std::string, float>>
       bufferedWrites_;
+  std::unordered_map<std::string, bool> is_key_invalidated;
   std::mutex mutex_;
 };
 
