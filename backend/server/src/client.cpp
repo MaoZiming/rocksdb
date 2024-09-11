@@ -1,5 +1,6 @@
 #include "client.hpp"
 
+#include <future>
 // Implementation of CacheClient methods
 
 TimeStamp GetTimestamp() {
@@ -140,4 +141,26 @@ bool CacheClient::Update(const std::string &key, const std::string &value,
   }
 
   return false;
+}
+
+// BUGGY
+void CacheClient::AsyncUpdate(const std::string &key, const std::string &value,
+                              TimeStamp *load) {
+  // TODO: Use async and return a future.
+  CacheUpdateRequest request;
+  CacheUpdateResponse response;
+  ClientContext context;
+
+  TimeStamp start = GetTimestamp();
+  request.set_key(key);
+  request.set_value(value);
+
+#ifdef USE_STATIC_VALUE
+  (*load) += C_U;
+#else
+  (*load) += GetTimestamp() - start;
+#endif
+
+  stub_->AsyncUpdate(&context, request, &cq_);
+  return;
 }

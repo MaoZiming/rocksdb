@@ -43,9 +43,12 @@ class CacheClient {
   bool Invalidate(const std::string &key, TimeStamp *load);
   bool Update(const std::string &key, const std::string &value,
               TimeStamp *load);
+  void AsyncUpdate(const std::string &key, const std::string &value,
+                   TimeStamp *load);
 
  private:
   std::unique_ptr<CacheService::Stub> stub_;
+  grpc::CompletionQueue cq_;  // Add this line if cq_ is a member
 };
 
 #define USE_STATIC_VALUE

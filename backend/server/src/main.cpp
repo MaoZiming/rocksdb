@@ -15,6 +15,8 @@
 
 #include "client.hpp"
 #include "load_tracker.hpp"
+const int KB = 1000;
+const int MB = 1000 * KB;
 
 using freshCache::DBDeleteRequest;
 using freshCache::DBDeleteResponse;
@@ -30,9 +32,10 @@ using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
 
-const int STALENESS_BOUND = 1;
+const int STALENESS_BOUND = 0;
 
 void computeMatrixMultiplication(int size) {
+  // size = 70;
   std::vector<std::vector<int>> matrix1(size, std::vector<int>(size, 1));
   std::vector<std::vector<int>> matrix2(size, std::vector<int>(size, 2));
   std::vector<std::vector<int>> result(size, std::vector<int>(size, 0));
@@ -202,7 +205,12 @@ class DBServiceImpl final : public DBService::Service {
     cache_client_->Update(key, value, &load_);
   }
 
+  void async_update(const std::string key, std::string value) {
+    cache_client_->AsyncUpdate(key, value, &load_);
+  }
+
   void write_buffer(const std::string key, std::string value, float ew) {
+    if (is_key_invalidated[key]) return;
     std::lock_guard<std::mutex> lock(mutex_);
     bufferedWrites_[key] = std::make_pair(value, ew);
   }
@@ -216,6 +224,13 @@ class DBServiceImpl final : public DBService::Service {
       invalidate_or_update(key, value, ew);
     }
     bufferedWrites_.clear();
+  }
+
+  void fake_serialization() {
+    const std::string& key = "key1";
+    const std::string& value = "value" + std::string(100 * KB, 'a');
+    invalidate_or_update(key, value, UPDATE_EW);
+    // async_update(key, value);
   }
 
  private:
@@ -236,8 +251,14 @@ void RunPeriodicTask(DBServiceImpl* service, std::atomic<bool>& running) {
   }
 }
 
+void RunSerializationTask(DBServiceImpl* service, std::atomic<bool>& running) {
+  while (running) {
+    service->fake_serialization();
+  }
+}
+
 void RunServer(const std::string& address, const std::string& db_path,
-               CacheClient* cache_client) {
+               CacheClient* cache_client, const std::string& log_path) {
   std::string server_address(address);
   DBServiceImpl service(db_path, cache_client);
 
@@ -251,10 +272,7 @@ void RunServer(const std::string& address, const std::string& db_path,
   std::thread periodic_thread(RunPeriodicTask, &service, std::ref(running));
 
   std::string timestamp = GetT();
-
-  std::string logFilename =
-      "cpu_" + timestamp + ".log";  // Construct the filename
-  START_COLLECTION(logFilename);
+  START_COLLECTION(log_path);
   server->Wait();
   running = false;
   periodic_thread.join();
@@ -265,24 +283,27 @@ int main(int argc, char** argv) {
   // Default values
   std::string port = "50051";
   std::string rocksdb_path = "test.db";
+  std::string log_path = "test.log";
   CacheClient cache_client(grpc::CreateChannel(
       "10.128.0.34:50051", grpc::InsecureChannelCredentials()));
 
   // Check the number of arguments
-  if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " <port> <rocksdb_path>" << std::endl;
+  if (argc != 4) {
+    std::cerr << "Usage: " << argv[0] << " <port> <rocksdb_path> <log_path>"
+              << std::endl;
     return 1;  // Return with error code
   }
 
   // Read arguments
   port = argv[1];
   rocksdb_path = argv[2];
+  log_path = argv[3];
 
   // Construct the server address
   std::string server_address = "0.0.0.0:" + port;
 
   // Run the server
-  RunServer(server_address, rocksdb_path, &cache_client);
+  RunServer(server_address, rocksdb_path, &cache_client, log_path);
 
   return 0;
 }

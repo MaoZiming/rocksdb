@@ -1,86 +1,59 @@
+import os
 import matplotlib.pyplot as plt
 import re
 from datetime import datetime
 import seaborn as sns
-# Path to the log file
-# log_file = "build/cpu_2024-09-05 05:59:40.log"
-# output_file = 'plot/Poisson-TTL.pdf'
+import pandas as pd
 
-# log_file = "build/cpu_2024-09-05 05:56:16.log"
-# output_file = 'plot/Poisson-Adaptive.pdf'
+# Paths
+log_dir = "/home/maoziming/rocksdb/backend/build/logs"
+output_dir = "figures/"
 
-# log_file = "build/cpu_2024-09-05 06:24:34.log"
-# output_file = 'plot/Poisson-TTL.pdf'
+# Create output dir if it doesn't exist
+os.makedirs(output_dir, exist_ok=True)
 
-# log_file = "build/cpu_2024-09-05 06:32:10.log"
-# output_file = 'plot/Poisson-Adaptive.pdf'
+# Benchmarks and Datasets
+# BENCHMARKS = ["invalidate_bench", "ttl_bench", "stale_bench", "update_bench"]
 
-# log_file = "build/cpu_2024-09-05 07:08:26.log"
-# output_file = 'plot/Poisson-TTL-uniform.pdf'
+BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench"]
+DATASETS = ["Meta", "Twitter", "Tencent", "IBM", "Alibaba"]
 
-log_file = "build/cpu_2024-09-05 07:12:50.log"
-output_file = 'plot/Poisson-Adaptive-uniform.pdf'
-
-log_file = "build/cpu_2024-09-05 07:25:58.log"
-output_file = "plot/Poisson-Update-uniform.pdf"
-
-log_file = "build/cpu_2024-09-05 07:38:12.log"
-output_file = "plot/Poisson-Update-with-comp.pdf"
-
-log_file = "build/cpu_2024-09-05 07:44:08.log"
-output_file = "plot/Poisson-Update.pdf"
-
-log_file = "build/cpu_2024-09-05 07:49:35.log"
-output_file = "plot/Poisson-Invalidate-uniform.pdf"
-
-log_file = "build/cpu_2024-09-05 07:53:45.log"
-output_file = "plot/Poisson-TTL-uniform.pdf"
-
-log_file = "build/cpu_2024-09-05 17:41:30.log"
-output_file = "plot/PoissonMix-TTL.pdf"
-
-log_file = "build/cpu_2024-09-05 17:45:10.log"
-output_file = "plot/PoissonMix-Invalidate.pdf"
-
-log_file = "build/cpu_2024-09-05 17:49:43.log"
-output_file = "plot/PoissonMix-Update.pdf"
-
-log_file = "build/cpu_2024-09-06 06:16:30.log"
-output_file = "plot/Meta-TTL.pdf"
-
-log_file = "build/cpu_2024-09-06 06:23:21.log"
-output_file = "plot/Meta-Invalidate.pdf"
-
-log_file = "build/cpu_2024-09-06 06:30:26.log"
-output_file = "plot/Meta-Update.pdf"
-
-import matplotlib.dates as mdates
-from datetime import timedelta
-
-BIG_SIZE= 10
-FIGRATIO = 1 / 3
-FIGWIDTH = 7 # inches
-FIGHEIGHT = FIGWIDTH * FIGRATIO
-FIGSIZE = (FIGWIDTH, FIGHEIGHT)
-
-plt.rcParams.update(
-{
-"figure.figsize": FIGSIZE,
-"figure.dpi": 300,
+    
+dataset_to_reqs = {
+    "Meta": 500000,
+    "Twitter": 5000000,
+    "IBM": 30000,
+    "Tencent": 100000, 
+    "Alibaba": 300000,
+    "PoissonMix": 200000
 }
-)
 
-COLORS = sns.color_palette("Paired")
-sns.set_style("ticks")
-sns.set_palette(COLORS)
+benchmark_to_print_name = {
+    "stale_bench": "TTL (Inf.)",
+    "ttl_bench": "TTL (1s)",
+    "invalidate_bench": "Inv.", 
+    "update_bench": "Upd."
+}
 
-plt.rc("font", size=BIG_SIZE) # controls default text sizes
-plt.rc("axes", titlesize=BIG_SIZE) # fontsize of the axes title
-plt.rc("axes", labelsize=BIG_SIZE) # fontsize of the x and y labels
-plt.rc("xtick", labelsize=BIG_SIZE) # fontsize of the tick labels
-plt.rc("ytick", labelsize=BIG_SIZE) # fontsize of the tick labels
-plt.rc("legend", fontsize=BIG_SIZE) # legend fontsize
-plt.rc("figure", titlesize=BIG_SIZE) # fontsize of the figure title
+
+# Regex to match the log files
+log_filename_pattern = re.compile(r"(\w+)_([^_]+)_(\d{8}_\d{6})\.log")
+
+# Function to find the latest log for a given benchmark and dataset
+def find_latest_log(benchmark, dataset):
+    latest_time = None
+    latest_log = None
+
+    for log_file in os.listdir(log_dir):
+        match = log_filename_pattern.match(log_file)
+        if match:
+            log_benchmark, log_dataset, timestamp_str = match.groups()
+            if log_benchmark == benchmark and log_dataset == dataset:
+                timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                if latest_time is None or timestamp > latest_time:
+                    latest_time = timestamp
+                    latest_log = log_file
+    return latest_log
 
 # Lists to store extracted data
 timestamps = []
@@ -95,71 +68,182 @@ log_pattern = re.compile(
     r"Network recv: (\d+) bytes, send: (\d+) bytes"
 )
 
-has_warmed = False
-# Read and process the log file
-with open(log_file, "r") as file:
-    for line in file:
-        match = log_pattern.match(line)
-        if match:
-            timestamp_str = match.group(1)
-            cpu_utilization = float(match.group(2))
-            recv_bytes = int(match.group(3)) / (1024 * 1024)  # Convert to MB
-            send_bytes = int(match.group(4)) / (1024 * 1024)  # Convert to MB
-            
-            # Convert the timestamp string to a datetime object
-            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-            
-            # Append the data to lists
-            timestamps.append(timestamp)
-            cpu_utilizations.append(cpu_utilization)
-            network_recv_mb.append(recv_bytes)
-            network_send_mb.append(send_bytes)
+# Plotting parameters
+BIG_SIZE = 10
+FIGRATIO = 1 / 3
+FIGWIDTH = 7
+FIGHEIGHT = FIGWIDTH * FIGRATIO
+FIGSIZE = (FIGWIDTH, FIGHEIGHT)
 
-start_time = timestamps[0]
+plt.rcParams.update({
+    "figure.figsize": FIGSIZE,
+    "figure.dpi": 300,
+})
 
-relative_times = [(ts - start_time).total_seconds() for ts in timestamps]
-print(relative_times)
-# end_time = start_time + timedelta(minutes=2.5)
+COLORS = sns.color_palette("Paired")
+sns.set_style("ticks")
+sns.set_palette(COLORS)
 
-# Create the figure and axis objects
-fig, ax1 = plt.subplots()
+plt.rc("font", size=BIG_SIZE)
+plt.rc("axes", titlesize=BIG_SIZE)
+plt.rc("axes", labelsize=BIG_SIZE)
+plt.rc("xtick", labelsize=BIG_SIZE)
+plt.rc("ytick", labelsize=BIG_SIZE)
+plt.rc("legend", fontsize=BIG_SIZE)
+plt.rc("figure", titlesize=BIG_SIZE)
 
+max_times_data = {"Benchmark": [], "Dataset": [], "Throughput": []}
+dataset_to_max_throughput = {
+    
+}
 
-# Plot network statistics on the primary y-axis
-ax1.plot(relative_times, network_recv_mb, label="Recv (MB/s)", color="green")
-ax1.plot(relative_times, network_send_mb, label="Send (MB/s)", color="red")
+def get_throughput(dataset, time): 
+    
+    return dataset_to_reqs[dataset] / time
 
-# Label and format the primary y-axis (network)
-ax1.set_xlabel("Time")
-ax1.set_ylabel("Network Traffic (MB/s)", color="black")
-ax1.tick_params(axis='y')
+# Process each benchmark and dataset combination
+for dataset in DATASETS:
+    for benchmark in BENCHMARKS:
+        log_file = find_latest_log(benchmark, dataset)
+        if log_file:
+            log_path = os.path.join(log_dir, log_file)
+            # print(f"Processing log file: {log_path}")
 
-# Format x-axis to show minutes
-ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))  # Ensure that x-axis ticks are at whole minutes
-ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x)} s"))  # Format x-axis as minutes
+            # Read and process the log file
+            timestamps.clear()
+            cpu_utilizations.clear()
+            network_recv_mb.clear()
+            network_send_mb.clear()
 
-ax1.set_xlim([0, 350])
+            with open(log_path, "r") as file:
+                for line in file:
+                    match = log_pattern.match(line)
+                    if match:
+                        timestamp_str = match.group(1)
+                        cpu_utilization = float(match.group(2))
+                        recv_bytes = int(match.group(3)) / (1024 * 1024)  # Convert to MB
+                        send_bytes = int(match.group(4)) / (1024 * 1024)  # Convert to MB
 
-# Format x-axis to prevent crowding
-# ax1.xaxis.set_major_locator(mdates.AutoDateLocator())  # Automatically manage x-axis ticks
-# ax1.xaxis.set_major_formatter(mdates.DateFormatter('%M\'%S\'\''))  # Format to show date and time
-# plt.xticks(rotation=45, ha='right')  # Rotate and align x-axis labels
+                        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
+                        timestamps.append(timestamp)
+                        cpu_utilizations.append(cpu_utilization)
+                        network_recv_mb.append(recv_bytes)
+                        network_send_mb.append(send_bytes)
 
-# Create a secondary y-axis for CPU utilization
-ax2 = ax1.twinx()
-ax2.plot(relative_times, cpu_utilizations, label="CPU Utilization (%)", color="blue", linestyle="--")
-ax2.set_ylabel("CPU Utilization (%)", color="blue")
-ax2.tick_params(axis='y', labelcolor="blue")
+            if not timestamps:
+                print(f"No data found in {log_file}")
+                continue
 
-# Formatting the plot
-# fig.suptitle("CPU Utilization and Network Traffic over Time", fontsize=14)
-ax1.legend(loc="upper left")
-ax2.legend(loc="upper right")
-plt.xticks(rotation=45)
-ax1.grid(True)
+            start_time = timestamps[0]
+            relative_times = [(ts - start_time).total_seconds() for ts in timestamps]
 
-# Show the plot
+            # Create the figure and axis objects
+            fig, ax1 = plt.subplots()
+
+            # Plot network statistics on the primary y-axis
+            ax1.plot(relative_times, network_recv_mb, label="Recv (MB/s)", color="green")
+            ax1.plot(relative_times, network_send_mb, label="Send (MB/s)", color="red")
+
+            ax1.set_xlabel("Time")
+            ax1.set_ylabel("Network Traffic (MB/s)", color="black")
+            ax1.tick_params(axis='y')
+
+            ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+            ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x)} s"))
+
+            # Add the max relative time to the data dictionary
+            max_times_data["Benchmark"].append(benchmark)
+            max_times_data["Dataset"].append(dataset)
+            max_times_data["Throughput"].append(get_throughput(dataset, max(relative_times)))
+            dataset_to_max_throughput[dataset] = max(dataset_to_max_throughput.get(dataset, 0), get_throughput(dataset, max(relative_times)))
+            # ax1.set_xlim([0, 300])
+
+            # Create a secondary y-axis for CPU utilization
+            ax2 = ax1.twinx()
+            ax2.plot(relative_times, cpu_utilizations, label="CPU Utilization (%)", color="blue", linestyle="--")
+            ax2.set_ylabel("CPU Utilization (%)", color="blue")
+            ax2.tick_params(axis='y', labelcolor="blue")
+
+            ax1.legend(loc="upper left")
+            ax2.legend(loc="upper right")
+            ax1.grid(True)
+
+            # Save the plot to the figures directory
+            output_file = os.path.join(output_dir, f"{dataset}_{benchmark}.pdf")
+            plt.tight_layout()
+            plt.savefig(output_file)
+            plt.close()
+
+            # print(f"Figure saved: {output_file}")
+            print(benchmark, dataset, max(relative_times))
+        else:
+            print(f"No log file found for {benchmark} and {dataset}")
+
+# DataFrame to hold raw throughput values
+throughput_df = pd.DataFrame(max_times_data)
+normalized_throughput_data = {"Benchmark": [], "Dataset": [], "NormalizedThroughput": []}
+
+for index, row in throughput_df.iterrows():
+    dataset = row["Dataset"]
+    benchmark = row["Benchmark"]
+    throughput = row["Throughput"]
+
+    
+    # Normalize using stale_bench throughput for the same dataset
+    if dataset in dataset_to_max_throughput:
+        normalized_value = throughput / dataset_to_max_throughput[dataset] * 100
+    else:
+        normalized_value = None  # If there's no stale_bench for that dataset, leave it as None
+
+    
+    if dataset == "PoissonMix":
+        dataset = "Poisson"
+    
+    # Store normalized throughput
+    benchmark = benchmark_to_print_name[benchmark]
+    normalized_throughput_data["Benchmark"].append(benchmark)
+    normalized_throughput_data["Dataset"].append(dataset)
+    normalized_throughput_data["NormalizedThroughput"].append(normalized_value)
+
+# Create a DataFrame from the normalized throughput data
+normalized_df = pd.DataFrame(normalized_throughput_data)
+
+BIG_SIZE = 10
+FIGRATIO = 2 / 5
+FIGWIDTH = 6
+FIGHEIGHT = FIGWIDTH * FIGRATIO
+FIGSIZE = (FIGWIDTH, FIGHEIGHT)
+
+plt.rcParams.update({
+    "figure.figsize": FIGSIZE,
+    "figure.dpi": 300,
+})
+
+plt.rc("font", size=BIG_SIZE)
+plt.rc("axes", titlesize=BIG_SIZE)
+plt.rc("axes", labelsize=BIG_SIZE)
+plt.rc("xtick", labelsize=BIG_SIZE)
+plt.rc("ytick", labelsize=BIG_SIZE)
+plt.rc("legend", fontsize=BIG_SIZE)
+plt.rc("figure", titlesize=BIG_SIZE)
+
+# Create a DataFrame from the max_times_data dictionary
+# max_times_df = pd.DataFrame(max_times_data)
+
+# Plot the grouped bar chart
+sns.barplot(x="Dataset", y="NormalizedThroughput", hue="Benchmark", data=normalized_df)
+plt.ylim(30)
+# Set plot labels and title
+plt.xlabel("Workloads")
+plt.ylabel("Norm. Thpt (%)")
+
+# Save the grouped bar plot
+bar_output_file = os.path.join(output_dir, "throughput_comparison.pdf")
+plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.3), ncol=4)
+
 plt.tight_layout()
-# plt.show()
-plt.savefig(output_file)
+plt.savefig(bar_output_file)
+plt.close()
+
+print(f"Grouped bar plot saved: {bar_output_file}")
