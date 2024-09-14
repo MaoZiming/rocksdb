@@ -15,7 +15,7 @@ os.makedirs(output_dir, exist_ok=True)
 # Benchmarks and Datasets
 # BENCHMARKS = ["invalidate_bench", "ttl_bench", "stale_bench", "update_bench"]
 
-BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench"]
+BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench", "adaptive_bench"]
 DATASETS = ["Meta", "Twitter", "Tencent", "IBM", "Alibaba"]
 
     
@@ -32,7 +32,8 @@ benchmark_to_print_name = {
     "stale_bench": "TTL (Inf.)",
     "ttl_bench": "TTL (1s)",
     "invalidate_bench": "Inv.", 
-    "update_bench": "Upd."
+    "update_bench": "Upd.",
+    "adaptive_bench": "Adpt."
 }
 
 
@@ -240,7 +241,7 @@ plt.ylabel("Norm. Thpt (%)")
 
 # Save the grouped bar plot
 bar_output_file = os.path.join(output_dir, "throughput_comparison.pdf")
-plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.3), ncol=4)
+plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.3), ncol=5)
 
 plt.tight_layout()
 plt.savefig(bar_output_file)

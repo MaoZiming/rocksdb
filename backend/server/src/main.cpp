@@ -67,11 +67,27 @@ class DBServiceImpl final : public DBService::Service {
 
   void invalidate_or_update(std::string key, std::string value, float ew) {
     if (ew == INVALIDATE_EW) {
+      // INVALIDATE
       invalidate(key);
+
+    } else if (ew == TTL_EW) {
+      return;
     } else if (ew == UPDATE_EW) {
+      // UPDATE
       update(key, value);
+
     } else {
-      assert(ew > 0 || ew == -1);
+      // SMART POLICY
+      // ew == 0 should never happen.
+      assert(ew >= 0 || ew == -1);
+      // Prefiltering done by the adaptive policy.
+      if (is_key_invalidated.find(key) == is_key_invalidated.end()) {
+        return;
+      }
+      if (is_key_invalidated[key]) {
+        return;
+      }
+
       if (ew == -1) {
         invalidate(key);
       } else {
@@ -147,7 +163,7 @@ class DBServiceImpl final : public DBService::Service {
       response->set_value(value);
       response->set_found(true);
     } else {
-      // std::cout << "key not found! " << request->key() << std::endl;
+      std::cout << "key not found! " << request->key() << std::endl;
       response->set_value("");
       response->set_found(false);
     }
@@ -210,7 +226,6 @@ class DBServiceImpl final : public DBService::Service {
   }
 
   void write_buffer(const std::string key, std::string value, float ew) {
-    if (is_key_invalidated[key]) return;
     std::lock_guard<std::mutex> lock(mutex_);
     bufferedWrites_[key] = std::make_pair(value, ew);
   }
