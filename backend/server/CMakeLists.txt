@@ -1,7 +1,7 @@
 #
 # Dependencies
 #
-find_package(Threads)
+find_package(Threads REQUIRED)
 
 # Specify the path to the RocksDB installation
 set(ROCKSDB_INCLUDE_DIR "/usr/local/include")
@@ -12,13 +12,17 @@ include_directories(${ROCKSDB_INCLUDE_DIR})
 # Find the RocksDB library
 find_library(ROCKSDB_LIBRARY rocksdb HINTS ${ROCKSDB_LIB_DIR})
 
+# Check if RocksDB was found
+if(NOT ROCKSDB_LIBRARY)
+    message(FATAL_ERROR "RocksDB library not found!")
+endif()
+
 #
 # Sources
 #
 set(SOURCES
-    src/client.cpp
-    src/client.hpp
-    src/load_tracker.hpp
+    src/load_tracker.cpp
+    src/thread_pool.cpp
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
@@ -31,8 +35,10 @@ add_executable(server
     src/main.cpp
 )
 
+# Link the necessary libraries, including threading support
 target_link_libraries(server
     PRIVATE
     myproto
     ${ROCKSDB_LIBRARY}
+    Threads::Threads
 )
