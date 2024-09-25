@@ -30,13 +30,13 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 #
 # Target
 #
-add_executable(server
+add_executable(db_server
     ${SOURCES}
     src/main.cpp
 )
 
 # Link the necessary libraries, including threading support
-target_link_libraries(server
+target_link_libraries(db_server
     PRIVATE
     myproto
     ${ROCKSDB_LIBRARY}

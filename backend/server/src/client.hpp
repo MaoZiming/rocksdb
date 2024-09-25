@@ -32,7 +32,7 @@ using freshCache::CacheUpdateRequest;
 using freshCache::CacheUpdateResponse;
 
 typedef unsigned long long int TimeStamp;
-const int MAX_CONCURRENT_RPCS = 100;
+const int MAX_CONCURRENT_RPCS = 10000;
 
 TimeStamp GetTimestamp();
 
@@ -52,11 +52,7 @@ class CacheClient {
 
   // Asynchronous Get method returning a future
   std::future<std::string> GetAsync(const std::string &key) {
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
 
     // Build the request
     CacheGetRequest request;
@@ -82,11 +78,7 @@ class CacheClient {
   // Asynchronous Set method returning a future
   std::future<bool> SetAsync(const std::string &key, const std::string &value,
                              int ttl) {
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
 
     // Build the request
     CacheSetRequest request;
@@ -113,15 +105,13 @@ class CacheClient {
 
   // Asynchronous Invalidate method returning a future
   std::future<bool> InvalidateAsync(const std::string &key) {
-    // std::cout << "InvalidateAsync: before cv" << current_rpcs << std::endl;
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
+
     // Build the request
     CacheInvalidateRequest request;
     request.set_key(key);
+
+    // std::cerr << "before AsyncClientCall *call" << std::endl;
 
     // Call object to store RPC data
     AsyncClientCall *call = new AsyncClientCall;
@@ -130,6 +120,9 @@ class CacheClient {
     call->invalidate_promise = std::make_shared<std::promise<bool>>();
 
     // Get the future from the promise
+    // std::cerr << "before call->invalidate_promise->get_future()" <<
+    // std::endl;
+
     std::future<bool> result_future = call->invalidate_promise->get_future();
 
     // Start the asynchronous RPC
@@ -137,6 +130,7 @@ class CacheClient {
         stub_->AsyncInvalidate(&call->context, request, &cq_);
     call->invalidate_response_reader->Finish(&call->invalidate_reply,
                                              &call->status, (void *)call);
+
     // std::cout << "InvalidateAsync: finishes" << std::endl;
 
     return result_future;
@@ -147,11 +141,7 @@ class CacheClient {
                                 const std::string &value, int ttl) {
     // std::cout << "UpdateAsync: before cv" << current_rpcs << std::endl;
 
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
 
     // Build the request
     CacheUpdateRequest request;
@@ -178,11 +168,7 @@ class CacheClient {
 
   // Asynchronous SetTTL method returning a future
   std::future<bool> SetTTLAsync(int32_t ttl) {
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
 
     // Build the request
     CacheSetTTLRequest request;
@@ -207,11 +193,7 @@ class CacheClient {
 
   // Asynchronous GetMR method returning a future
   std::future<float> GetMRAsync() {
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
-      ++current_rpcs;
-    }
+    ++current_rpcs;
 
     // Build the request
     CacheGetMRRequest request;
@@ -256,26 +238,26 @@ class CacheClient {
   }
 
   // Synchronous Invalidate method that waits for the result
-  bool Invalidate(const std::string &key) {
-    try {
-      std::future<bool> result_future = InvalidateAsync(key);
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "Invalidate failed: " << e.what() << std::endl;
-      return false;
-    }
-  }
+  // bool Invalidate(const std::string &key) {
+  //   try {
+  //     std::future<bool> result_future = InvalidateAsync(key);
+  //     return result_future.get();  // Wait for the result
+  //   } catch (const std::exception &e) {
+  //     std::cerr << "Invalidate failed: " << e.what() << std::endl;
+  //     return false;
+  //   }
+  // }
 
   // Synchronous Update method that waits for the result
-  bool Update(const std::string &key, const std::string &value, int ttl) {
-    try {
-      std::future<bool> result_future = UpdateAsync(key, value, ttl);
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "Update failed: " << e.what() << std::endl;
-      return false;
-    }
-  }
+  // bool Update(const std::string &key, const std::string &value, int ttl) {
+  //   try {
+  //     std::future<bool> result_future = UpdateAsync(key, value, ttl);
+  //     return result_future.get();  // Wait for the result
+  //   } catch (const std::exception &e) {
+  //     std::cerr << "Update failed: " << e.what() << std::endl;
+  //     return false;
+  //   }
+  // }
 
   // Synchronous SetTTL method that waits for the result
   bool SetTTL(int32_t ttl) {
@@ -353,8 +335,8 @@ class CacheClient {
   const int MAX_CONCURRENT_RPCS = 100;
   grpc::CompletionQueue cq_;
   std::thread cq_thread_;
-  std::mutex mutex_;
-  std::condition_variable cv_;
+  // std::condition_variable cv_;
+  // std::mutex mutex_;
 
   std::unique_ptr<CacheService::Stub> stub_;
 
@@ -385,6 +367,7 @@ class CacheClient {
 
         AsyncClientCall *call = static_cast<AsyncClientCall *>(got_tag);
         if (call->status.ok()) {
+          // std::cout << "success!" << std::endl;
           switch (call->call_type) {
             case AsyncClientCall::CallType::GET:
               call->get_promise->set_value(call->get_reply.value());
@@ -395,6 +378,7 @@ class CacheClient {
             case AsyncClientCall::CallType::INVALIDATE:
               call->invalidate_promise->set_value(
                   call->invalidate_reply.success());
+
               break;
             case AsyncClientCall::CallType::UPDATE:
               call->update_promise->set_value(call->update_reply.success());
@@ -408,15 +392,43 @@ class CacheClient {
           }
         } else {
           std::cerr << "RPC failed for key: " << call->key << std::endl;
+          switch (call->call_type) {
+            case AsyncClientCall::CallType::GET:
+              call->get_promise->set_value(
+                  "");  // Return empty string on failure
+              break;
+            case AsyncClientCall::CallType::SET:
+              call->set_promise->set_value(false);  // Return false on failure
+              break;
+            case AsyncClientCall::CallType::INVALIDATE:
+              call->invalidate_promise->set_value(
+                  false);  // Return false on failure
+              break;
+            case AsyncClientCall::CallType::UPDATE:
+              call->update_promise->set_value(
+                  false);  // Return false on failure
+              break;
+            case AsyncClientCall::CallType::SETTTL:
+              call->set_ttl_promise->set_value(
+                  false);  // Return false on failure
+              break;
+            case AsyncClientCall::CallType::GETMR:
+              call->get_mr_promise->set_value(-1.0f);  // Return -1.0 on failure
+              break;
+          }
         }
 
         // Decrement the active RPC count and notify
-        {
-          std::lock_guard<std::mutex> lock(mutex_);
-          --current_rpcs;
-          // std::cout << "Decremented rc: " << current_rpcs << std::endl;
-        }
-        cv_.notify_one();
+        // {
+        // std::lock_guard<std::mutex> lock(mutex_);
+        // {
+        // std::lock_guard<std::mutex> lock(mutex_);
+        --current_rpcs;
+        //   cv_.notify_one();  // Notify one waiting thread to proceed
+        // }
+        // std::cout << "Decremented rc: " << current_rpcs << std::endl;
+        // }
+        // cv_.notify_one();
         delete call;
       }
     }

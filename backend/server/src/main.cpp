@@ -7,7 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
-#include <mutex>
+// #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -78,6 +78,9 @@ void CallDataPut::Proceed() {
 
     status_ = FINISH;
     responder_.Finish(put_response_, Status::OK, this);
+    // std::cout << "CallDataPut finish" << std::endl;
+
+    // std::cout << "responder finishes!" << std::endl;
   } else {
     // Clean up and delete this instance
     // std::cout << "CallDataPut finishes!" << std::endl;
@@ -86,19 +89,16 @@ void CallDataPut::Proceed() {
 }
 
 void CallDataPut::HandlePut() {
-#ifdef DEBUG
-  std::cout << "Put: " << put_request_.key() << ", " << put_request_.value()
-            << std::endl;
-#endif
+  // std::cout << "Put: " << put_request_.key() << ", " << put_request_.value()
+  //           << std::endl;
+  // std::cout << "CallDataPut start" << std::endl;
   rocksdb::WriteOptions write_options;
   rocksdb::Status s = server_->db()->Put(write_options, put_request_.key(),
                                          put_request_.value());
   put_response_.set_success(s.ok());
   float ew = put_request_.ew();
 
-#ifdef DEBUG
-  std::cout << "ew: " << ew << std::endl;
-#endif
+  // std::cout << "ew: " << ew << std::endl;
 
   if (ew == TTL_EW) {
     // Disabled
@@ -106,11 +106,11 @@ void CallDataPut::HandlePut() {
   } else {
     // std::cout << "InvalidateOrUpdate starts!" << std::endl;
 
-    if (STALENESS_BOUND_IN_MS == 0 || ew == INVALIDATE_EW || ew == UPDATE_EW)
-      // For invalidate and update, send it out.
-      server_->InvalidateOrUpdate(put_request_.key(), put_request_.value(), ew);
-    else
-      server_->WriteBuffer(put_request_.key(), put_request_.value(), ew);
+    // if (STALENESS_BOUND_IN_MS == 0 || ew == INVALIDATE_EW || ew == UPDATE_EW)
+    // For invalidate and update, send it out.
+    server_->InvalidateOrUpdate(put_request_.key(), put_request_.value(), ew);
+    // else
+    // server_->WriteBuffer(put_request_.key(), put_request_.value(), ew);
     // std::cout << "InvalidateOrUpdate finishes!" << std::endl;
   }
   server_->set_count()++;
@@ -131,7 +131,7 @@ void CallDataGet::Proceed() {
   if (status_ == CREATE) {
     status_ = PROCESS;
     // Request a new Get RPC
-    // std::cout << "DB before RequestGet" << std::endl;
+    // std::cout << "CallDataGet start" << std::endl;
     service_->RequestGet(&ctx_, &get_request_, &responder_, cq_, cq_, this);
     // std::cout << "DB after RequestGet" << std::endl;
   } else if (status_ == PROCESS) {
@@ -146,6 +146,7 @@ void CallDataGet::Proceed() {
     status_ = FINISH;
     // std::cout << "DB HandleGet finishes!" << std::endl;
     responder_.Finish(get_response_, Status::OK, this);
+    // std::cout << "CallDataGet finish" << std::endl;
     // std::cout << "DB responder_ finishes" << std::endl;
   } else {
     // Clean up and delete this instance
@@ -172,7 +173,7 @@ void CallDataGet::HandleGet() {
     get_response_.set_found(false);
   }
   server_->load() += C_M;
-  server_->set_miss(get_request_.key());
+  // server_->set_miss(get_request_.key());
   // server_->is_key_invalidated()[get_request_.key()] = false;
   server_->get_count()++;
 }

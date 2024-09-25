@@ -287,7 +287,7 @@ class AsyncServer {
 
   // Method to check buffer
   void CheckBuffer() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    // std::lock_guard<std::mutex> lock(mutex_);
     for (const auto &pair : bufferedWrites_) {
       const std::string &key = pair.first;
       const std::string &value = pair.second.first;
@@ -345,36 +345,15 @@ class AsyncServer {
     } else {
       // Smart policy
       assert(ew >= 0 || ew == -1);
-      // std::cout << "Invalidation Count: " << invalidation_count_ <<
-      // std::endl;
-      if (!check_is_in_cache(key)) {
-        // std::cout << "Not in cache!" << key << ", ew: " << ew << std::endl;
-        return;
-      }
+      // if (!check_is_in_cache(key)) {
+      //   // std::cout << "Not in cache!" << key << ", ew: " << ew <<
+      //   std::endl; return;
+      // }
 
       if (get_cpu_load() > 0.8) {
         /* Always Invalidate when high load.*/
         Invalidate(key);
-      }
-      /*
-      else if (get_cpu_load() < 0.2) {
-        // Invalidate when low load
-      Update(key, value);
-      }
-      */
-
-      else if (ew == -1) {
-        // std::cout << "Invalidate!" << key << ", ew: " << ew << std::endl;
-        // One hit wonders!
-        /*
-        if (invalidation_count_ &&
-            static_cast<double>(miss_count_due_to_invalidates_) /
-                    invalidation_count_ >
-                0.3)
-          Update(key, value);
-        else
-          Invalidate(key);
-          */
+      } else if (ew == -1) {
         Invalidate(key);
       }
 
@@ -399,87 +378,75 @@ class AsyncServer {
     }
   }
 
-  std::shared_mutex invalidate_mutex_;
-
-  bool check_is_in_cache(const std::string &key) {
-    std::lock_guard<std::shared_mutex> lock(invalidate_mutex_);
-    auto it = is_key_invalidated_.find(key);
-    if (it == is_key_invalidated_.end()) {
-      return true;
-    }
-    return !it->second;
-  }
+  // bool check_is_in_cache(const std::string &key) {
+  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
+  //   auto it = is_key_invalidated_.find(key);
+  //   if (it == is_key_invalidated_.end()) {
+  //     return true;
+  //   }
+  //   return !it->second;
+  // }
 
   void Invalidate(const std::string &key) {
-    // Offload to a new thread
-    thread_pool_.enqueue([this, key]() {
-      // Perform async invalidation
-      cache_client_->InvalidateAsync(key);
-
-      // Update internal state after invalidation
-      {
-        std::lock_guard<std::mutex> lock(load_mutex_);
-        set_invalidate(key);
-        load_ += C_I;
-        invalidation_count_++;
-      }
-    });
+    // std::cout << "Before InvalidateAsync" << std::endl;
+    cache_client_->InvalidateAsync(key);
+    // std::cout << "Before set_invalidate" << std::endl;
+    // set_invalidate(key);
+    // std::cout << "Invalidate finishes" << std::endl;
+    // {
+    // std::lock_guard<std::mutex> lock(load_mutex_);
+    load_ += C_I;
+    invalidation_count_++;
+    // }
+    // }).detach();  // Detach to avoid blocking
   }
 
-  void set_miss(const std::string &key) {
-    std::unique_lock<std::shared_mutex> lock(invalidate_mutex_);
-    if (is_key_invalidated_[key]) miss_count_due_to_invalidates_++;
-    if (is_key_invalidated_.size() >= is_key_invalidated_size_)
-      evict_one_invalidate();
-    is_key_invalidated_[key] = false;
-  }
+  // void set_miss(const std::string &key) {
+  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
+  //   if (is_key_invalidated_.size() >= is_key_invalidated_size_)
+  //     evict_one_invalidate();
+  //   is_key_invalidated_[key] = false;
+  // }
 
-  void set_invalidate(const std::string &key) {
-    std::unique_lock<std::shared_mutex> lock(invalidate_mutex_);
-    if (is_key_invalidated_.size() >= is_key_invalidated_size_)
-      evict_one_invalidate();
-    is_key_invalidated_[key] = true;
-  }
+  // void set_invalidate(const std::string &key) {
+  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
+  //   if (is_key_invalidated_.size() >= is_key_invalidated_size_)
+  //     evict_one_invalidate();
+  //   is_key_invalidated_[key] = true;
+  // }
 
-  void evict_one_invalidate() {
-    if (!is_key_invalidated_.empty()) {
-      auto it = is_key_invalidated_.begin();  // Get an arbitrary element
-      is_key_invalidated_.erase(it);          // Remove it from the map
+  // void evict_one_invalidate() {
+  //   if (!is_key_invalidated_.empty()) {
+  //     auto it = is_key_invalidated_.begin();  // Get an arbitrary element
+  //     is_key_invalidated_.erase(it);          // Remove it from the map
+  //   }
+  // }
+
+  void Update(const std::string &key, const std::string &value) {
+    cache_client_->UpdateAsync(key, value, 0);
+    {
+      // std::lock_guard<std::mutex> lock(load_mutex_);
+      load_ += C_U;
     }
   }
 
-  void Update(const std::string &key, const std::string &value) {
-    thread_pool_.enqueue([this, key, value]() {
-      cache_client_->UpdateAsync(key, value, 0);
-      {
-        std::lock_guard<std::mutex> lock(load_mutex_);
-        load_ += C_U;
-      }
-    });
-  }
-
-  void WriteBuffer(const std::string &key, const std::string &value, float ew) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    bufferedWrites_[key] = std::make_pair(value, ew);
-  }
+  // void WriteBuffer(const std::string &key, const std::string &value, float
+  // ew) {
+  //   std::lock_guard<std::mutex> lock(mutex_);
+  //   bufferedWrites_[key] = std::make_pair(value, ew);
+  // }
 
   // Getter methods for shared resources
   rocksdb::DB *db() { return db_; }
   CacheClient *cache_client() { return cache_client_; }
   std::atomic<int> &get_count() { return get_count_; }
   std::atomic<int> &set_count() { return set_count_; }
-  TimeStamp &load() { return load_; }
-  std::unordered_map<std::string, bool> &is_key_invalidated() {
-    return is_key_invalidated_;
-  }
-  std::mutex &mutex() { return mutex_; }
+  std::atomic<TimeStamp> &load() { return load_; }
+  // std::mutex &mutex() { return mutex_; }
 
   int getActiveConnections() { return active_connections.load(); }
 
  private:
-  std::atomic<int> active_connections{0};
-  ThreadPool thread_pool_;
-
   void HandleRpcs() {
     // Spawn new CallData instances to serve new clients
     new CallDataPut(&service_, cq_.get(), this);
@@ -489,18 +456,6 @@ class AsyncServer {
     new CallDataGetReadCount(&service_, cq_.get(), this);
     new CallDataGetWriteCount(&service_, cq_.get(), this);
     new CallDataStartRecord(&service_, cq_.get(), this);
-
-    /*
-    void *tag;  // uniquely identifies a request
-    bool ok;
-    while (cq_->Next(&tag, &ok)) {
-      if (!ok) {
-        // Handle failure or completion error
-        continue;
-      }
-      static_cast<CallDataBase *>(tag)->Proceed();
-    }
-    */
 
     std::vector<std::thread> workers;
     int num_threads =
@@ -515,7 +470,7 @@ class AsyncServer {
           // std::cout << "Got a new message!" << std::endl;
           if (ok) {
             ++active_connections;
-            static_cast<CallDataBase *>(tag)->Proceed();  // Process the event
+            static_cast<CallDataBase *>(tag)->Proceed();
           }
 
           --active_connections;  // Once the request is done
@@ -539,6 +494,10 @@ class AsyncServer {
     }
   }
 
+  std::atomic<int> active_connections{0};
+  ThreadPool thread_pool_;
+  // std::mutex invalidate_mutex_;
+
   // Server state
   std::string server_address_;
   std::string db_path_;
@@ -546,20 +505,19 @@ class AsyncServer {
   std::unique_ptr<ServerCompletionQueue> cq_;
   DBService::AsyncService service_;
   std::unique_ptr<Server> server_;
-  int64_t invalidation_count_ = 0;
-  int64_t miss_count_due_to_invalidates_ = 0;
+  std::atomic<int64_t> invalidation_count_ = 0;
 
   // Shared resources
   rocksdb::DB *db_;
   std::atomic<int> get_count_;
   std::atomic<int> set_count_;
-  TimeStamp load_;
+  std::atomic<TimeStamp> load_;
   std::unordered_map<std::string, std::pair<std::string, float>>
       bufferedWrites_;
-  std::unordered_map<std::string, bool> is_key_invalidated_;
-  size_t is_key_invalidated_size_ = 10000000;
-  std::mutex mutex_;
-  std::mutex load_mutex_;
+  // std::unordered_map<std::string, bool> is_key_invalidated_;
+  // size_t is_key_invalidated_size_ = 10000000;
+  // std::mutex mutex_;
+  // std::mutex load_mutex_;
 
   friend class CallDataPut;
   friend class CallDataGet;
