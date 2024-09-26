@@ -457,31 +457,40 @@ class AsyncServer {
     new CallDataGetWriteCount(&service_, cq_.get(), this);
     new CallDataStartRecord(&service_, cq_.get(), this);
 
-    std::vector<std::thread> workers;
-    int num_threads =
-        std::thread::hardware_concurrency();  // Use all available cores
+    // Number of threads to poll the CompletionQueue
+    int num_polling_threads =
+        std::thread::hardware_concurrency();  // Adjust as needed
 
-    // Each thread processes events from the CompletionQueue
-    for (int i = 0; i < num_threads; ++i) {
-      workers.emplace_back([this]() {
+    // Create a ThreadPool for processing events
+    ThreadPool pool(
+        num_polling_threads);  // Set num_worker_threads as appropriate
+
+    // Threads to poll the CompletionQueue
+    std::vector<std::thread> polling_threads;
+
+    for (int i = 0; i < num_polling_threads; ++i) {
+      polling_threads.emplace_back([this, &pool]() {
         void *tag;
         bool ok;
         while (cq_->Next(&tag, &ok)) {
-          // std::cout << "Got a new message!" << std::endl;
           if (ok) {
             ++active_connections;
-            static_cast<CallDataBase *>(tag)->Proceed();
+            // Enqueue the event processing into the ThreadPool
+            pool.enqueue([tag, this]() {
+              static_cast<CallDataBase *>(tag)->Proceed();
+              --active_connections;  // Decrement after processing is done
+            });
+          } else {
+            // Handle the case where 'ok' is false if necessary
+            --active_connections;
           }
-
-          --active_connections;  // Once the request is done
-          // std::cout << "Finish that message! " << std::endl;
         }
       });
     }
 
-    // Join threads before exiting
-    for (auto &worker : workers) {
-      worker.join();
+    // Join polling threads before exiting
+    for (auto &thread : polling_threads) {
+      thread.join();
     }
   }
 

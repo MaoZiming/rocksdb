@@ -32,7 +32,6 @@ using freshCache::CacheUpdateRequest;
 using freshCache::CacheUpdateResponse;
 
 typedef unsigned long long int TimeStamp;
-const int MAX_CONCURRENT_RPCS = 10000;
 
 TimeStamp GetTimestamp();
 
@@ -332,7 +331,6 @@ class CacheClient {
   };
 
   std::atomic<int> current_rpcs{0};
-  const int MAX_CONCURRENT_RPCS = 100;
   grpc::CompletionQueue cq_;
   std::thread cq_thread_;
   // std::condition_variable cv_;
