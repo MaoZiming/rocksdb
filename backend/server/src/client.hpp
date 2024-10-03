@@ -35,11 +35,29 @@ typedef unsigned long long int TimeStamp;
 
 TimeStamp GetTimestamp();
 
+#define USE_RPC_LIMIT
+
+#ifdef USE_RPC_LIMIT
+const int MAX_CONCURRENT_RPCS = 1000;
+#endif
+
 class CacheClient {
  public:
   CacheClient(std::shared_ptr<grpc::Channel> channel)
       : stub_(CacheService::NewStub(channel)) {
     // Start the completion queue thread
+    cq_thread_ = std::thread(&CacheClient::AsyncCompleteRpc, this);
+  }
+
+  CacheClient(std::vector<std::string> cache_addresses) {
+    std::cout << "Created " << cache_addresses.size() << " CacheClient stubs"
+              << std::endl;
+
+    for (auto cache_address : cache_addresses) {
+      auto channel = grpc::CreateChannel(cache_address,
+                                         grpc::InsecureChannelCredentials());
+      stubs_.push_back(CacheService::NewStub(channel));
+    }
     cq_thread_ = std::thread(&CacheClient::AsyncCompleteRpc, this);
   }
 
@@ -49,88 +67,54 @@ class CacheClient {
     cq_thread_.join();
   }
 
-  // Asynchronous Get method returning a future
-  std::future<std::string> GetAsync(const std::string &key) {
-    ++current_rpcs;
+  int get_current_rpcs() { return current_rpcs.load(); }
 
-    // Build the request
-    CacheGetRequest request;
-    request.set_key(key);
+  CacheService::Stub *get_stub(const std::string &key) {
+    if (stub_) {
+      // Return stub_ if it exists
+      return stub_.get();
+    } else if (!stubs_.empty()) {
+      // Hash the key and use the result to select a stub from stubs_
+      std::hash<std::string> hash_fn;
+      size_t hash_value = hash_fn(key);
+      size_t stub_index = hash_value % stubs_.size();
+      return stubs_[stub_index].get();
+    }
 
-    // Call object to store RPC data
-    AsyncClientCall *call = new AsyncClientCall;
-    call->call_type = AsyncClientCall::CallType::GET;
-    call->key = key;
-    call->get_promise = std::make_shared<std::promise<std::string>>();
-
-    // Get the future from the promise
-    std::future<std::string> result_future = call->get_promise->get_future();
-
-    // Start the asynchronous RPC
-    call->get_response_reader = stub_->AsyncGet(&call->context, request, &cq_);
-    call->get_response_reader->Finish(&call->get_reply, &call->status,
-                                      (void *)call);
-
-    return result_future;
-  }
-
-  // Asynchronous Set method returning a future
-  std::future<bool> SetAsync(const std::string &key, const std::string &value,
-                             int ttl) {
-    ++current_rpcs;
-
-    // Build the request
-    CacheSetRequest request;
-    request.set_key(key);
-    request.set_value(value);
-    request.set_ttl(ttl);
-
-    // Call object to store RPC data
-    AsyncClientCall *call = new AsyncClientCall;
-    call->call_type = AsyncClientCall::CallType::SET;
-    call->key = key;
-    call->set_promise = std::make_shared<std::promise<bool>>();
-
-    // Get the future from the promise
-    std::future<bool> result_future = call->set_promise->get_future();
-
-    // Start the asynchronous RPC
-    call->set_response_reader = stub_->AsyncSet(&call->context, request, &cq_);
-    call->set_response_reader->Finish(&call->set_reply, &call->status,
-                                      (void *)call);
-
-    return result_future;
+    // Handle the case where both stub_ and stubs_ are empty
+    std::cerr << "Error: No stub available!" << std::endl;
+    return nullptr;
   }
 
   // Asynchronous Invalidate method returning a future
   std::future<bool> InvalidateAsync(const std::string &key) {
-    ++current_rpcs;
+    {
+#ifdef USE_RPC_LIMIT
+      std::unique_lock<std::mutex> lock(mutex_);
+      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
+#endif
+      ++current_rpcs;
+    }
 
     // Build the request
     CacheInvalidateRequest request;
     request.set_key(key);
-
-    // std::cerr << "before AsyncClientCall *call" << std::endl;
 
     // Call object to store RPC data
     AsyncClientCall *call = new AsyncClientCall;
     call->call_type = AsyncClientCall::CallType::INVALIDATE;
     call->key = key;
     call->invalidate_promise = std::make_shared<std::promise<bool>>();
+    // call->start_time = std::chrono::steady_clock::now();
 
     // Get the future from the promise
-    // std::cerr << "before call->invalidate_promise->get_future()" <<
-    // std::endl;
-
     std::future<bool> result_future = call->invalidate_promise->get_future();
 
     // Start the asynchronous RPC
     call->invalidate_response_reader =
-        stub_->AsyncInvalidate(&call->context, request, &cq_);
+        get_stub(key)->AsyncInvalidate(&call->context, request, &cq_);
     call->invalidate_response_reader->Finish(&call->invalidate_reply,
                                              &call->status, (void *)call);
-
-    // std::cout << "InvalidateAsync: finishes" << std::endl;
 
     return result_future;
   }
@@ -138,9 +122,13 @@ class CacheClient {
   // Asynchronous Update method returning a future
   std::future<bool> UpdateAsync(const std::string &key,
                                 const std::string &value, int ttl) {
-    // std::cout << "UpdateAsync: before cv" << current_rpcs << std::endl;
-
-    ++current_rpcs;
+    {
+#ifdef USE_RPC_LIMIT
+      std::unique_lock<std::mutex> lock(mutex_);
+      cv_.wait(lock, [this]() { return current_rpcs < MAX_CONCURRENT_RPCS; });
+#endif
+      ++current_rpcs;
+    }
 
     // Build the request
     CacheUpdateRequest request;
@@ -152,88 +140,18 @@ class CacheClient {
     call->call_type = AsyncClientCall::CallType::UPDATE;
     call->key = key;
     call->update_promise = std::make_shared<std::promise<bool>>();
+    // call->start_time = std::chrono::steady_clock::now();
 
     // Get the future from the promise
     std::future<bool> result_future = call->update_promise->get_future();
 
     // Start the asynchronous RPC
     call->update_response_reader =
-        stub_->AsyncUpdate(&call->context, request, &cq_);
+        get_stub(key)->AsyncUpdate(&call->context, request, &cq_);
     call->update_response_reader->Finish(&call->update_reply, &call->status,
                                          (void *)call);
 
     return result_future;
-  }
-
-  // Asynchronous SetTTL method returning a future
-  std::future<bool> SetTTLAsync(int32_t ttl) {
-    ++current_rpcs;
-
-    // Build the request
-    CacheSetTTLRequest request;
-    request.set_ttl(ttl);
-
-    // Call object to store RPC data
-    AsyncClientCall *call = new AsyncClientCall;
-    call->call_type = AsyncClientCall::CallType::SETTTL;
-    call->set_ttl_promise = std::make_shared<std::promise<bool>>();
-
-    // Get the future from the promise
-    std::future<bool> result_future = call->set_ttl_promise->get_future();
-
-    // Start the asynchronous RPC
-    call->set_ttl_response_reader =
-        stub_->AsyncSetTTL(&call->context, request, &cq_);
-    call->set_ttl_response_reader->Finish(&call->set_ttl_reply, &call->status,
-                                          (void *)call);
-
-    return result_future;
-  }
-
-  // Asynchronous GetMR method returning a future
-  std::future<float> GetMRAsync() {
-    ++current_rpcs;
-
-    // Build the request
-    CacheGetMRRequest request;
-
-    // Call object to store RPC data
-    AsyncClientCall *call = new AsyncClientCall;
-    call->call_type = AsyncClientCall::CallType::GETMR;
-    call->get_mr_promise = std::make_shared<std::promise<float>>();
-
-    // Get the future from the promise
-    std::future<float> result_future = call->get_mr_promise->get_future();
-
-    // Start the asynchronous RPC
-    call->get_mr_response_reader =
-        stub_->AsyncGetMR(&call->context, request, &cq_);
-    call->get_mr_response_reader->Finish(&call->get_mr_reply, &call->status,
-                                         (void *)call);
-
-    return result_future;
-  }
-
-  // Synchronous Get method that waits for the result
-  std::string Get(const std::string &key) {
-    try {
-      std::future<std::string> result_future = GetAsync(key);
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "Get failed: " << e.what() << std::endl;
-      return "";
-    }
-  }
-
-  // Synchronous Set method that waits for the result
-  bool Set(const std::string &key, const std::string &value, int ttl) {
-    try {
-      std::future<bool> result_future = SetAsync(key, value, ttl);
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "Set failed: " << e.what() << std::endl;
-      return false;
-    }
   }
 
   // Synchronous Invalidate method that waits for the result
@@ -258,30 +176,6 @@ class CacheClient {
   //   }
   // }
 
-  // Synchronous SetTTL method that waits for the result
-  bool SetTTL(int32_t ttl) {
-    try {
-      std::future<bool> result_future = SetTTLAsync(ttl);
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "SetTTL failed: " << e.what() << std::endl;
-      return false;
-    }
-  }
-
-  // Synchronous GetMR method that waits for the result
-  float GetMR() {
-    try {
-      std::future<float> result_future = GetMRAsync();
-      return result_future.get();  // Wait for the result
-    } catch (const std::exception &e) {
-      std::cerr << "GetMR failed: " << e.what() << std::endl;
-      return -1.0;
-    }
-  }
-
-  int get_current_rpcs() { return current_rpcs.load(); }
-
  private:
   // Struct to keep state and data information for the asynchronous calls
   struct AsyncClientCall {
@@ -289,18 +183,6 @@ class CacheClient {
 
     CallType call_type;
     std::string key;
-
-    // For GetAsync
-    CacheGetResponse get_reply;
-    std::unique_ptr<grpc::ClientAsyncResponseReader<CacheGetResponse>>
-        get_response_reader;
-    std::shared_ptr<std::promise<std::string>> get_promise;
-
-    // For SetAsync
-    CacheSetResponse set_reply;
-    std::unique_ptr<grpc::ClientAsyncResponseReader<CacheSetResponse>>
-        set_response_reader;
-    std::shared_ptr<std::promise<bool>> set_promise;
 
     // For InvalidateAsync
     CacheInvalidateResponse invalidate_reply;
@@ -313,23 +195,14 @@ class CacheClient {
     std::unique_ptr<grpc::ClientAsyncResponseReader<CacheUpdateResponse>>
         update_response_reader;
     std::shared_ptr<std::promise<bool>> update_promise;
-
-    // For SetTTLAsync
-    CacheSetTTLResponse set_ttl_reply;
-    std::unique_ptr<grpc::ClientAsyncResponseReader<CacheSetTTLResponse>>
-        set_ttl_response_reader;
-    std::shared_ptr<std::promise<bool>> set_ttl_promise;
-
-    // For GetMRAsync
-    CacheGetMRResponse get_mr_reply;
-    std::unique_ptr<grpc::ClientAsyncResponseReader<CacheGetMRResponse>>
-        get_mr_response_reader;
-    std::shared_ptr<std::promise<float>> get_mr_promise;
-
     grpc::ClientContext context;
     grpc::Status status;
   };
 
+#ifdef USE_RPC_LIMIT
+  std::mutex mutex_;
+  std::condition_variable cv_;
+#endif
   std::atomic<int> current_rpcs{0};
   grpc::CompletionQueue cq_;
   std::thread cq_thread_;
@@ -337,6 +210,7 @@ class CacheClient {
   // std::mutex mutex_;
 
   std::unique_ptr<CacheService::Stub> stub_;
+  std::vector<std::unique_ptr<CacheService::Stub>> stubs_;
 
   void AsyncCompleteRpc() {
     std::vector<std::pair<void *, bool>> events;  // To hold batched events
@@ -367,37 +241,17 @@ class CacheClient {
         if (call->status.ok()) {
           // std::cout << "success!" << std::endl;
           switch (call->call_type) {
-            case AsyncClientCall::CallType::GET:
-              call->get_promise->set_value(call->get_reply.value());
-              break;
-            case AsyncClientCall::CallType::SET:
-              call->set_promise->set_value(call->set_reply.success());
-              break;
             case AsyncClientCall::CallType::INVALIDATE:
               call->invalidate_promise->set_value(
                   call->invalidate_reply.success());
-
               break;
             case AsyncClientCall::CallType::UPDATE:
               call->update_promise->set_value(call->update_reply.success());
-              break;
-            case AsyncClientCall::CallType::SETTTL:
-              call->set_ttl_promise->set_value(call->set_ttl_reply.success());
-              break;
-            case AsyncClientCall::CallType::GETMR:
-              call->get_mr_promise->set_value(call->get_mr_reply.mr());
               break;
           }
         } else {
           std::cerr << "RPC failed for key: " << call->key << std::endl;
           switch (call->call_type) {
-            case AsyncClientCall::CallType::GET:
-              call->get_promise->set_value(
-                  "");  // Return empty string on failure
-              break;
-            case AsyncClientCall::CallType::SET:
-              call->set_promise->set_value(false);  // Return false on failure
-              break;
             case AsyncClientCall::CallType::INVALIDATE:
               call->invalidate_promise->set_value(
                   false);  // Return false on failure
@@ -406,27 +260,21 @@ class CacheClient {
               call->update_promise->set_value(
                   false);  // Return false on failure
               break;
-            case AsyncClientCall::CallType::SETTTL:
-              call->set_ttl_promise->set_value(
-                  false);  // Return false on failure
-              break;
-            case AsyncClientCall::CallType::GETMR:
-              call->get_mr_promise->set_value(-1.0f);  // Return -1.0 on failure
-              break;
           }
         }
 
-        // Decrement the active RPC count and notify
-        // {
-        // std::lock_guard<std::mutex> lock(mutex_);
-        // {
-        // std::lock_guard<std::mutex> lock(mutex_);
-        --current_rpcs;
-        //   cv_.notify_one();  // Notify one waiting thread to proceed
-        // }
-        // std::cout << "Decremented rc: " << current_rpcs << std::endl;
-        // }
-        // cv_.notify_one();
+        {
+#ifdef USE_RPC_LIMIT
+
+          std::lock_guard<std::mutex> lock(mutex_);
+#endif
+          --current_rpcs;
+        }
+#ifdef USE_RPC_LIMIT
+
+        cv_.notify_one();
+#endif
+
         delete call;
       }
     }

@@ -31,9 +31,10 @@ plt.rc("figure", titlesize=BIG_SIZE)
 # Create output dir if it doesn't exist
 os.makedirs(output_dir, exist_ok=True)
 
-BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench", "adaptive_bench"]
-DATASETS = ["PoissonMix", "Meta"]
-SCALES = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench", "adaptive_bench", "oracle_bench"]
+DATASETS = ["PoissonMix", "Poisson", "PoissonWrite", "Tencent", "IBM", "Alibaba"]
+SCALES = list(range(1000))
+# SCALES = [1000, 500, 100, 10]
 
 dataset_to_reqs = {
     "Meta": 500000,
@@ -52,6 +53,7 @@ benchmark_to_print_name = {
     "invalidate_bench": "Inv.", 
     "update_bench": "Upd.",
     "adaptive_bench": "Adpt.",
+    "oracle_bench": "Oracle"
 }
 
 
@@ -85,7 +87,7 @@ log_pattern = re.compile(
     r"number of active connections: (\d+), current_rpcs: (\d+)"
 )
 
-max_times_data = {"Benchmark": [], "Dataset": [], "Throughput": [], "Scale": [], "CPU": [], "NW": [], "Disk": [], "num_active_connections": [], "num_current_rpcs": []}
+data = {"Benchmark": [], "Dataset": [], "Throughput": [], "Scale": [], "CPU": [], "NW": [], "Disk": [], "num_active_connections": [], "num_current_rpcs": []}
 
 def get_throughput(dataset, time): 
     return dataset_to_reqs[dataset] / time
@@ -134,27 +136,30 @@ for dataset in DATASETS:
                             num_active_connections_list.append(num_active_connections)
                             num_current_rpcs_list.append(num_current_rpcs)
                             
-                if not timestamps:
+                if not timestamps or len(timestamps) < 15:
                     print(f"No data found in {log_file}")
                     continue
 
                 start_time = timestamps[0]
                 relative_times = [(ts - start_time).total_seconds() for ts in timestamps]
                 
-                max_times_data['Benchmark'].append(benchmark)
-                max_times_data['Dataset'].append(dataset)
-                max_times_data['Throughput'].append(get_throughput(dataset, max(relative_times)))
-                max_times_data['Scale'].append(scale)
-                max_times_data['NW'].append(sum(network_total_mb[5:-5]) / len(network_total_mb[5:-5]))
-                max_times_data["CPU"].append(sum(cpu_utilizations[5:-5]) / len(cpu_utilizations[5:-5]))
-                max_times_data["Disk"].append(sum(disk_total_mb[5:-5]) / len(disk_total_mb[5:-5]))
-                max_times_data["num_active_connections"].append(sum(num_active_connections_list[5:-5]) / len(num_active_connections_list[5:-5]))
-                max_times_data['num_current_rpcs'].append(sum(num_current_rpcs_list[5:-5]) / len(num_current_rpcs_list[5:-5]))
+                data['Benchmark'].append(benchmark)
+                data['Dataset'].append(dataset)
+                data['Throughput'].append(get_throughput(dataset, max(relative_times)))
+                data['Scale'].append(scale)
+                data['NW'].append(sum(network_total_mb[5:-5]) / len(network_total_mb[5:-5]))
+                data["CPU"].append(sum(cpu_utilizations[5:-5]) / len(cpu_utilizations[5:-5]))
+                data["Disk"].append(sum(disk_total_mb[5:-5]) / len(disk_total_mb[5:-5]))
+                data["num_active_connections"].append(sum(num_active_connections_list[5:-5]) / len(num_active_connections_list[5:-5]))
+                data['num_current_rpcs'].append(sum(num_current_rpcs_list[5:-5]) / len(num_current_rpcs_list[5:-5]))
 
-    # print(max_times_data)
+    # print(data)
+
+    if not data["Scale"]:
+        continue
 
     # Convert the data to a DataFrame for easier handling
-    df = pd.DataFrame(max_times_data)
+    df = pd.DataFrame(data)
 
     # Group by benchmark
     benchmarks = df['Benchmark'].unique()
@@ -168,10 +173,17 @@ for dataset in DATASETS:
         for i, benchmark in enumerate(benchmarks):
             # Filter data for the same benchmark
             subset = df[df['Benchmark'] == benchmark]
-            subset = subset.sort_values(by='Throughput')
+            subset = subset.sort_values(by='Scale')
 
             # Plot the line and points, connecting points with a line
             plt.plot(subset['Throughput'] / max_throughput * 100, subset[keyword], label=f'{benchmark_to_print_name[benchmark]}',marker=markers[i % len(markers)])
+            
+            # Add scale label at each point
+            for j in range(len(subset)):
+                x_value = subset['Throughput'].iloc[j] / max_throughput * 100
+                y_value = subset[keyword].iloc[j]
+                scale_value = subset['Scale'].iloc[j]
+                plt.text(x_value, y_value, f'{scale_value}', fontsize=8, ha='right')
             
         # Add labels and title
         plt.xlabel('Norm. Throughput (%)')
@@ -188,6 +200,6 @@ for dataset in DATASETS:
     plot_figure('NW', 'Avg. NW Usage (MB/s)')
     plot_figure('Disk', 'Avg. Disk Usage (MB/s)')
     # plot_figure('num_active_connections', '# active conn.')
-    plot_figure('num_current_rpcs', '# concurrent RPCs')
+    # plot_figure('num_current_rpcs', '# concurrent RPCs')
 
-    max_times_data = {"Benchmark": [], "Dataset": [], "Throughput": [], "Scale": [], "CPU": [], "NW": [], "Disk": [], "num_active_connections": [], "num_current_rpcs": []}
+    data = {"Benchmark": [], "Dataset": [], "Throughput": [], "Scale": [], "CPU": [], "NW": [], "Disk": [], "num_active_connections": [], "num_current_rpcs": []}

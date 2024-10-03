@@ -270,7 +270,7 @@ class AsyncServer {
     cq_ = builder.AddCompletionQueue();
     server_ = builder.BuildAndStart();
 
-    std::cout << "Server listening on " << server_address_ << std::endl;
+    std::cout << "DB Server listening on " << server_address_ << std::endl;
 
     // Start handling RPCs
     std::thread rpc_thread(&AsyncServer::HandleRpcs, this);
@@ -302,16 +302,18 @@ class AsyncServer {
     const int KB = 1000;
 
     // Calculate costs using double
-    double update_cost =
-        ew * C_U;                  // * (value.size() + key.size()) / (10 * KB);
-    double invalidate_cost = C_I;  // * key.size() / (10 * KB);
-    double miss_cost = (C_U + C_I)  // * (value.size() + key.size()) / (10 * KB)
+    double update_cost = ew * C_U;  // * (value.size() + key.size()) / (10 *
+    // KB);
+    double invalidate_cost = C_I;   // * key.size() / (10 * KB);
+    double miss_cost = (C_U + C_I)  // * (value.size() + key.size()) / (10 *
+                                    // KB)
                        + C_D;
 
+    // update_cost = 0;
     // New calculation.
-    update_cost = ew * (value.size() + key.size());
-    invalidate_cost = key.size();
-    miss_cost = value.size() + key.size() + key.size();
+    // update_cost = ew * (value.size() + key.size());
+    // invalidate_cost = key.size();
+    // miss_cost = value.size() + key.size() + key.size();
 
     // Print the costs for debugging
     /*
@@ -327,6 +329,9 @@ class AsyncServer {
 
   bool is_invalidate_cheaper(double ew, const std::string &key,
                              const std::string &value) {
+    // If write-dominated.
+    // return ew > 1;
+
     double cost_diff = calculate_cost_difference(ew, key, value);
 
     // Return true if invalidate is cheaper, false otherwise
@@ -344,16 +349,21 @@ class AsyncServer {
       Update(key, value);
     } else {
       // Smart policy
-      assert(ew >= 0 || ew == -1);
+      assert(ew > 0 || ew == -1);
       // if (!check_is_in_cache(key)) {
       //   // std::cout << "Not in cache!" << key << ", ew: " << ew <<
       //   std::endl; return;
       // }
 
+      /*
       if (get_cpu_load() > 0.8) {
-        /* Always Invalidate when high load.*/
+        // Always Invalidate when high load.
         Invalidate(key);
-      } else if (ew == -1) {
+
+      }
+      */
+
+      if (ew == -1) {
         Invalidate(key);
       }
 
@@ -378,49 +388,11 @@ class AsyncServer {
     }
   }
 
-  // bool check_is_in_cache(const std::string &key) {
-  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
-  //   auto it = is_key_invalidated_.find(key);
-  //   if (it == is_key_invalidated_.end()) {
-  //     return true;
-  //   }
-  //   return !it->second;
-  // }
-
   void Invalidate(const std::string &key) {
-    // std::cout << "Before InvalidateAsync" << std::endl;
     cache_client_->InvalidateAsync(key);
-    // std::cout << "Before set_invalidate" << std::endl;
-    // set_invalidate(key);
-    // std::cout << "Invalidate finishes" << std::endl;
-    // {
-    // std::lock_guard<std::mutex> lock(load_mutex_);
     load_ += C_I;
     invalidation_count_++;
-    // }
-    // }).detach();  // Detach to avoid blocking
   }
-
-  // void set_miss(const std::string &key) {
-  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
-  //   if (is_key_invalidated_.size() >= is_key_invalidated_size_)
-  //     evict_one_invalidate();
-  //   is_key_invalidated_[key] = false;
-  // }
-
-  // void set_invalidate(const std::string &key) {
-  //   std::lock_guard<std::mutex> lock(invalidate_mutex_);
-  //   if (is_key_invalidated_.size() >= is_key_invalidated_size_)
-  //     evict_one_invalidate();
-  //   is_key_invalidated_[key] = true;
-  // }
-
-  // void evict_one_invalidate() {
-  //   if (!is_key_invalidated_.empty()) {
-  //     auto it = is_key_invalidated_.begin();  // Get an arbitrary element
-  //     is_key_invalidated_.erase(it);          // Remove it from the map
-  //   }
-  // }
 
   void Update(const std::string &key, const std::string &value) {
     cache_client_->UpdateAsync(key, value, 0);
@@ -429,13 +401,6 @@ class AsyncServer {
       load_ += C_U;
     }
   }
-
-  // void WriteBuffer(const std::string &key, const std::string &value, float
-  // ew) {
-  //   std::lock_guard<std::mutex> lock(mutex_);
-  //   bufferedWrites_[key] = std::make_pair(value, ew);
-  // }
-
   // Getter methods for shared resources
   rocksdb::DB *db() { return db_; }
   CacheClient *cache_client() { return cache_client_; }
@@ -461,11 +426,8 @@ class AsyncServer {
     int num_polling_threads =
         std::thread::hardware_concurrency();  // Adjust as needed
 
-    // Create a ThreadPool for processing events
-    ThreadPool pool(
-        num_polling_threads);  // Set num_worker_threads as appropriate
+    ThreadPool pool(num_polling_threads);
 
-    // Threads to poll the CompletionQueue
     std::vector<std::thread> polling_threads;
 
     for (int i = 0; i < num_polling_threads; ++i) {
@@ -475,13 +437,11 @@ class AsyncServer {
         while (cq_->Next(&tag, &ok)) {
           if (ok) {
             ++active_connections;
-            // Enqueue the event processing into the ThreadPool
             pool.enqueue([tag, this]() {
               static_cast<CallDataBase *>(tag)->Proceed();
               --active_connections;  // Decrement after processing is done
             });
           } else {
-            // Handle the case where 'ok' is false if necessary
             --active_connections;
           }
         }

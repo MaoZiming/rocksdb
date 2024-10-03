@@ -157,7 +157,6 @@ void CallDataGet::Proceed() {
 
 void CallDataGet::HandleGet() {
   std::string value;
-  // std::cout << "DB Get: " << get_request_.key() << std::endl;
   rocksdb::Status s =
       server_->db()->Get(rocksdb::ReadOptions(), get_request_.key(), &value);
 
@@ -385,8 +384,11 @@ int main(int argc, char **argv) {
   // Default values
   std::string port = "50051";
   std::string rocksdb_path = "test.db";
-  CacheClient cache_client(grpc::CreateChannel(
-      "10.128.0.39:50051", grpc::InsecureChannelCredentials()));
+
+  const std::vector<std::string> CACHE_ADDRESSES = {"10.128.0.39:50051",
+                                                    "10.128.0.40:50051"};
+
+  CacheClient cache_client(CACHE_ADDRESSES);
 
   // Check the number of arguments
   if (argc != 4) {

@@ -15,9 +15,9 @@ os.makedirs(output_dir, exist_ok=True)
 # Benchmarks and Datasets
 # BENCHMARKS = ["invalidate_bench", "ttl_bench", "stale_bench", "update_bench"]
 
-BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench", "adaptive_bench"]
+BENCHMARKS = ["stale_bench",  "ttl_bench", "invalidate_bench", "update_bench", "adaptive_bench", "oracle_bench"]
 DATASETS = ["Meta", "Twitter", "Tencent", "IBM", "Alibaba", "Poisson", "PoissonWrite", "PoissonMix"]
-DATASETS = ["Meta", "Twitter", "Tencent", "IBM", "Alibaba"]
+DATASETS = ["IBM", "Meta", "Twitter", "PoissonMix", "Tencent", "Poisson"]
 
 # DATASETS = ["IBM"]
 # BENCHMARKS = ["ttl_bench", "stale_bench"]
@@ -39,6 +39,7 @@ benchmark_to_print_name = {
     "invalidate_bench": "Inv.", 
     "update_bench": "Upd.",
     "adaptive_bench": "Adpt.",
+    "oracle_bench": "Oracle"
 }
 
 
